@@ -263,7 +263,7 @@ async function fetchAbundance(zone, taxonKey, extra = {}, field = 'speciesKey') 
   return out;
 }
 
-/* ---------- noms : GBIF Backbone (nom valide) + vernaculaire français (GBIF, puis TAXREF) ---------- */
+/* ---------- noms : GBIF Backbone (nom valide) + vernaculaire français (GBIF) ---------- */
 const splitNames = arr => [...new Set(arr.flatMap(x => String(x).split(/[,;]/)).map(x => tidyName(x)).filter(x => x.length > 1))].slice(0, 12);
 const tidyName = s => { s = (s || '').trim(); if (s === s.toUpperCase()) s = s.toLowerCase(); return cap(s); };
 async function resolveName(k) {
@@ -275,17 +275,10 @@ async function resolveName(k) {
   try {
     const v = await jget(GBIF + 'species/' + sp.key + '/vernacularNames?limit=200', { retries: 1 });
     const rs = v.results || [];
-    const score = x => (x.preferred ? 2 : 0) + (/taxref|inpn|mnhn/i.test(x.source || '') ? 1 : 0);
+    const score = x => (x.preferred ? 2 : 0) + (/inpn|mnhn/i.test(x.source || '') ? 1 : 0);
     frAll = splitNames(rs.filter(x => x.language === 'fra').sort((a, b) => score(b) - score(a)).map(x => x.vernacularName));
     const e = rs.find(x => x.language === 'eng'); en = e ? tidyName(e.vernacularName) : '';
   } catch {}
-  if (!frAll.length) {
-    try {
-      const t = await jget('https://taxref.mnhn.fr/api/taxa/search?' + qs({ scientificNames: sci, page: 1, size: 1 }), { retries: 0, timeout: 8000 });
-      const f = t && t._embedded && t._embedded.taxa && t._embedded.taxa[0] && t._embedded.taxa[0].frenchVernacularName;
-      if (f) frAll = splitNames([f]);
-    } catch {}
-  }
   return (NAMES[k] = { sci, auth: sp.authorship || '', family: sp.family || '', genus: sp.genus || '', fr: frAll[0] || '', frAll, en, taxKey: sp.key });
 }
 Object.values(NAMES).forEach(n => { if (n.frAll && n.frAll.some(x => /[,;]/.test(x))) { n.frAll = splitNames(n.frAll); n.fr = n.frAll[0] || ''; } });
@@ -308,7 +301,7 @@ async function prepareNames(c, keys) {
 
 /* ---------- médias ---------- */
 const POOLS = {};
-const poolOf = (c, k) => POOLS[c.mode + '|' + k] || (POOLS[c.mode + '|' + k] = { items: [], ids: new Set(), bad: new Set(), fetches: 0, useZone: null, count: 0, exhausted: false, loading: null });
+const poolOf = (c, k) => POOLS[c.mode + '|' + k] || (POOLS[c.mode + '|' + k] = { items: [], ids: new Set(), bad: new Set(), fetches: 0, scope: undefined, geo: {}, count: 0, exhausted: false, loading: null });
 const shortLic = l => {
   l = String(l || ''); if (/zero|publicdomain|CC0/i.test(l)) return 'CC0';
   const m = l.match(/licenses\/([a-z-]+)\/([\d.]+)/i); if (m) return 'CC ' + m[1].toUpperCase() + ' ' + m[2];
@@ -334,16 +327,23 @@ async function loadMedia(c, k) {
 }
 async function loadGbifMedia(c, k, p, type) {
   const base = { [RANKP[c.rank || 'species']]: k, mediaType: type, occurrenceStatus: 'PRESENT' };
-  if (p.useZone === null) {
-    p.useZone = false;
-    if (S.zoneFirst) {
-      const z = await jget(GBIF + 'occurrence/search?' + qs({ ...base, ...zoneGeo(c.zone), limit: 0 }));
-      if (z.count >= (type === 'Sound' ? 4 : 12)) { p.useZone = true; p.count = z.count; }
+  const need = type === 'Sound' ? 4 : 12, cc = (c.zone && (c.zone.country || (c.zone.cc && c.zone.cc.length === 2 && c.zone.cc)) || '').toUpperCase();
+  if (p.scope === undefined) {
+    p.scope = 'world';
+    const tries = [];
+    if (S.zoneFirst) tries.push(['zone', zoneGeo(c.zone)]);
+    if (cc && !c.zone.country) tries.push(['pays', { country: cc }]);
+    tries.push(['monde', {}]);
+    let best = null;
+    for (const [sc, geo] of tries) {
+      const z = await jget(GBIF + 'occurrence/search?' + qs({ ...base, ...geo, limit: 0 }));
+      if (!best || z.count > best.count) best = { sc, geo, count: z.count };
+      if (z.count >= need) { best = { sc, geo, count: z.count }; break; }
     }
-    if (!p.useZone) { const g = await jget(GBIF + 'occurrence/search?' + qs({ ...base, limit: 0 })); p.count = g.count; }
+    p.scope = best.sc; p.geo = best.geo; p.count = best.count;
   }
   if (!p.count) return;
-  const q = p.useZone ? { ...base, ...zoneGeo(c.zone) } : base;
+  const q = { ...base, ...p.geo };
   const maxOff = Math.max(0, Math.min(p.count - 100, 9000));
   const off = p.fetches === 0 ? 0 : Math.floor(Math.random() * (maxOff + 1));
   const j = await jget(GBIF + 'occurrence/search?' + qs({ ...q, limit: 100, offset: p.count > 100 ? off : 0 }));
@@ -354,7 +354,7 @@ async function loadGbifMedia(c, k, p, type) {
     if (type === 'StillImage' && m.type !== 'StillImage') return;
     if (type === 'StillImage' && (r.datasetKey === XC_DS || /xeno-canto|spectro|\/ffts\/|sono\.|sonogram/i.test(String(m.identifier) + ' ' + (r.datasetName || '') + ' ' + (r.institutionCode || '')))) return;
     items.push({ id: 'g' + r.key + '_' + i, occ: r.key, url: type === 'StillImage' ? fixImg(m.identifier) : m.identifier,
-      creator: m.creator || m.rightsHolder || r.recordedBy || '', lic: shortLic(m.license || r.license), licRaw: m.license || r.license, src: r.datasetName || '', ds: r.datasetKey || '', dsn: r.datasetName || '', life: r.lifeStage || '', sp: r.species || '' });
+      creator: m.creator || m.rightsHolder || r.recordedBy || '', lic: shortLic(m.license || r.license), licRaw: m.license || r.license, src: r.datasetName || '', ds: r.datasetKey || '', dsn: r.datasetName || '', life: r.lifeStage || '', sp: r.species || '', scope: p.scope });
   }));
   const open = items.filter(i => okLic(i.licRaw));
   if (open.length >= 5) items = open;
@@ -366,20 +366,23 @@ async function loadXC(c, k, p) {
   const rk = c.rank || 'species';
   if (!gen || (rk === 'species' && !sp)) return;
   const base = rk === 'species' ? `gen:${gen} sp:${sp}` : rk === 'genus' ? `gen:${gen}` : `fam:${gen}`;
+  const add = j => (j.recordings || []).forEach(r => {
+    const id = 'xc' + r.id; if (p.ids.has(id)) return;
+    const [mm, ss] = String(r.length || '0:10').split(':').map(Number);
+    const also = (Array.isArray(r.also) ? r.also : String(r.also || '').split(/[,;]/)).map(x => String(x).replace(/\?/g, '').trim()).filter(x => x.length > 2 && x.toLowerCase() !== 'none');
+    p.ids.add(id);
+    p.items.push({ id, occ: 0, xc: r.id, url: r.file, sono: r.sono && (r.sono.med || r.sono.large), len: mm * 60 + ss, type: r.type, q: r.q || 'A', also,
+      creator: r.rec || '', lic: shortLic(r.lic), src: 'xeno-canto', ds: 'xeno-canto', dsn: 'xeno-canto', scope: 'monde' });
+  });
   try {
-    const j = await jget('https://xeno-canto.org/api/3/recordings?' + qs({ query: `${base} len:2-20 q:A`, key: S.xcKey }), { retries: 1 });
-    (j.recordings || []).forEach(r => {
-      const id = 'xc' + r.id; if (p.ids.has(id)) return;
-      const [mm, ss] = String(r.length || '0:10').split(':').map(Number);
-      p.ids.add(id);
-      p.items.push({ id, occ: 0, xc: r.id, url: r.file, sono: r.sono && (r.sono.med || r.sono.large), len: mm * 60 + ss, type: r.type,
-        creator: r.rec || '', lic: shortLic(r.lic), src: 'xeno-canto', ds: 'xeno-canto', dsn: 'xeno-canto' });
-    });
-    p.items.sort((a, b) => (a.len || 99) - (b.len || 99));
+    add(await jget('https://xeno-canto.org/api/3/recordings?' + qs({ query: `${base} len:2-20 q:A`, key: S.xcKey }), { retries: 1 }));
+    if (p.items.filter(i => i.xc && i.q === 'A').length < 8) { try { add(await jget('https://xeno-canto.org/api/3/recordings?' + qs({ query: `${base} len:2-20 q:B`, key: S.xcKey }), { retries: 1 })); } catch {} }
+    p.items.sort((a, b) => (a.xc && b.xc ? (String(a.q) > String(b.q) ? 1 : String(a.q) < String(b.q) ? -1 : 0) || (a.len || 99) - (b.len || 99) : 0));
   } catch {}
 }
 function markSeen(c, k, id) { const a = c.seen[k] || (c.seen[k] = []); if (!a.includes(id)) a.push(id); if (a.length > 400) a.shift(); }
-async function nextMedia(c, k, avoid = new Set()) {
+const songCall = t => /song/i.test(t || '') ? 'song' : /call/i.test(t || '') ? 'call' : 'autre';
+async function nextMedia(c, k, avoid = new Set(), train = false) {
   const p = poolOf(c, k); const seen = new Set(c.seen[k] || []);
   const fresh = () => p.items.filter(i => !seen.has(i.id) && !p.bad.has(i.id) && !BAD.items[i.id]);
   let cand = fresh();
@@ -387,7 +390,16 @@ async function nextMedia(c, k, avoid = new Set()) {
   let item = null, reused = false;
   if (cand.length) {
     const pref = cand.filter(i => !avoid.has(i.creator || i.id));
-    const arr = pref.length ? pref : cand;
+    let arr = pref.length ? pref : cand;
+    if (c.mode === 'sound' && train) {
+      const clean = arr.filter(i => !(i.also && i.also.length)); if (clean.length) arr = clean;
+      const types = [...new Set(arr.map(i => songCall(i.type)))].filter(t => t !== 'autre');
+      if (types.length > 1) {
+        const seenN = t => (c.seen[k] || []).filter(id => { const it = p.items.find(i => i.id === id); return it && songCall(it.type) === t; }).length;
+        types.sort((a, b) => seenN(a) - seenN(b) || Math.random() - 0.5);
+        arr = arr.filter(i => songCall(i.type) === types[0]);
+      }
+    }
     if (c.mode === 'sound' && arr[0].len) item = arr.find(i => penalty(i) === 0) || arr[0];
     else { const w = arr.map(i => 1 / (1 + penalty(i) ** 2)); let r = Math.random() * w.reduce((a, b) => a + b, 0), j = 0; for (; j < w.length - 1; j++) { r -= w[j]; if (r <= 0) break; } item = arr[j]; }
   } else {
@@ -546,6 +558,8 @@ function attrHTML(item, showLink) {
   if (item.lic) parts.push(esc(item.lic));
   if (item.type) parts.push(esc(item.type));
   if (item.life) parts.push('stade : ' + esc(lifeFr(item.life)));
+  if (showLink && item.also && item.also.length) parts.push('<b>autres espèces entendues</b> : ' + esc(item.also.join(', ')));
+  if (item.scope && item.scope !== 'zone') parts.push(`<b>hors zone d’étude</b> (${item.xc ? 'xeno-canto, sans filtre géographique' : item.scope === 'pays' ? 'même pays' : 'monde'})`);
   const dsName = item.dsn || item.src || (item.ds && item.ds !== 'xeno-canto' ? 'dataset ' + String(item.ds).slice(0, 8) : '');
   if (dsName) parts.push('dataset : ' + (item.ds && item.ds !== 'xeno-canto' ? `<a href="https://www.gbif.org/dataset/${esc(item.ds)}" target="_blank" rel="noopener">${esc(dsName)}</a>` : esc(dsName)));
   if (showLink) parts.push(item.occ ? `<a href="https://www.gbif.org/occurrence/${item.occ}" target="_blank" rel="noopener">observation GBIF ${item.occ}</a>` : item.xc ? `<a href="https://xeno-canto.org/${item.xc}" target="_blank" rel="noopener">XC${item.xc}</a>` : '');
@@ -936,8 +950,10 @@ async function showCover() {
 function updateModeHint() {
   const N = NEWC, h = $('#modeHint'); if (!h) return;
   const snd = N.taxa.length && N.taxa.every(t => t.snd);
-  h.textContent = N.mode === 'sound' ? (snd ? 'Seules les espèces avec enregistrements disponibles sont conservées. Extraits courts (≤ 8 s) ; avec une clé xeno-canto (Réglages), les enregistrements les plus courts sont privilégiés.' : 'Tous les groupes n’émettent pas de sons enregistrés : la liste peut être très courte.') : 'Photos d’observations (GBIF), de préférence issues de votre zone.';
+  h.innerHTML = N.mode === 'sound' && !S.xcKey ? '<b style="color:var(--bad)">Clé xeno-canto absente.</b> ' + esc(xcWarnShort) + ' ' : ''; h.append(document.createTextNode('') );
+  h.append(document.createTextNode(N.mode === 'sound' ? (snd ? 'Seules les espèces avec enregistrements disponibles sont conservées. Extraits courts (≤ 8 s) ; avec une clé xeno-canto (Réglages), les enregistrements les plus courts sont privilégiés.' : 'Tous les groupes n’émettent pas de sons enregistrés : la liste peut être très courte.') : 'Photos d’observations (GBIF), de préférence issues de votre zone.'));
 }
+const xcWarnShort = 'Sans elle, seuls les sons déposés dans GBIF sont disponibles, bien moins nombreux. Ajoutez-la dans Réglages.';
 function setCenter(lat, lon, fit) { NEWC.lat = +lat.toFixed(4); NEWC.lon = +lon.toFixed(4); $('#lat').value = NEWC.lat; $('#lon').value = NEWC.lon; moveMap(fit); }
 function moveMap(fit) { if (!map) return; mapMarker.setLatLng([NEWC.lat, NEWC.lon]); mapCircle.setLatLng([NEWC.lat, NEWC.lon]); if (fit) map.fitBounds(mapCircle.getBounds()); }
 function initMap() {
@@ -977,50 +993,38 @@ async function reverseLabel(lat, lon) {
 }
 
 /* ---------- aperçu des espèces ---------- */
-const isFrance = N => { const zk = N.zk || 'circle'; return zk === 'region' || (zk === 'country' && N.country === 'FR') || (zk === 'circle' && N.cc === 'fr'); };
-const TX = 'https://taxref.mnhn.fr/api/taxa/';
-const RANK_TX = { KINGDOM: 'KD', PHYLUM: 'PH', CLASS: 'CL', ORDER: 'OR', FAMILY: 'FM', GENUS: 'GN', SPECIES: 'ES', SUBFAMILY: 'SBFM', SUPERFAMILY: 'SPFM', SUBORDER: 'SBOR', TRIBE: 'TR' };
-const INFRA = new Set(['SSES', 'VAR', 'SVAR', 'FO', 'SSFO', 'CVAR', 'ABER', 'RACE', 'HYB', 'MO', 'LUSUS', 'NAT', 'PROLES', 'SSPROL', 'SSRACE', 'SMO', 'SSLUSUS', 'SF']);
-async function taxrefCount(sci, gbRank, budget = 250, onProg) {
-  const s = await jget(TX + 'search?' + qs({ scientificNames: sci, page: 1, size: 10 }), { retries: 1, timeout: 15000 });
-  const list = (s._embedded && s._embedded.taxa) || [], want = RANK_TX[gbRank];
-  const t = list.find(x => x.scientificName === sci && (!want || x.rankId === want)) || list.find(x => x.scientificName === sci);
-  if (!t) return null;
-  const present = k => k.fr === undefined || ['P', 'E', 'S', 'C', 'I', 'J'].includes(k.fr);
-  let n = 0, calls = 0, partial = false, allTerr = false;
-  if (t.rankId === 'ES') return { n: present(t) ? 1 : 0, partial: false, allTerr: t.fr === undefined };
-  const queue = [t.id];
-  while (queue.length && !partial) {
-    const batch = queue.splice(0, 8);
-    await Promise.all(batch.map(async id => {
-      if (calls >= budget) { partial = true; return; }
-      calls++;
-      const r = await jget(TX + id + '/children?' + qs({ size: 5000 }), { retries: 1, timeout: 20000 });
-      ((r._embedded && r._embedded.taxa) || []).forEach(k => { if (k.rankId === 'ES') { if (k.fr === undefined) allTerr = true; if (present(k)) n++; } else if (!INFRA.has(k.rankId)) queue.push(k.id); });
-      onProg && onProg(calls);
-    }));
-  }
-  return { n, partial, allTerr };
+/* nombre d'espèces connues dans le pays : cardinal de la facette speciesKey, par recherche dichotomique sur facetOffset */
+async function facetCard(params) {
+  const probe = async off => { const j = await jget(GBIF + 'occurrence/search?' + qs({ ...params, limit: 0, facet: 'speciesKey', facetLimit: 1, facetOffset: off }), { retries: 1, timeout: 20000 }); const f = (j.facets || [])[0]; return !!(f && f.counts && f.counts.length); };
+  if (!(await probe(0))) return 0;
+  let lo = 0, hi = 1;
+  while (await probe(hi)) { lo = hi; hi *= 2; if (hi > 400000) break; }
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (await probe(mid)) lo = mid; else hi = mid; }
+  return lo + 1;
 }
-async function runTaxref(N, P) {
+const countryName = cc => { try { return new Intl.DisplayNames(['fr'], { type: 'region' }).of(String(cc).toUpperCase()); } catch { return String(cc).toUpperCase(); } };
+async function zoneCountry(N, keys) {
+  if ((N.zk || 'circle') === 'country' && N.country) return String(N.country).toUpperCase();
+  const j = await jget(GBIF + 'occurrence/search?' + qs({ taxonKey: keys, ...zoneGeo(N), limit: 0, facet: 'country', facetLimit: 5 }), { retries: 1 });
+  const f = (j.facets || [])[0], c = f && f.counts && f.counts[0];
+  return c ? c.name : '';
+}
+async function runCountry(N, P, keys) {
   try {
-    let n = 0, partial = false, allTerr = false;
-    for (const t of N.taxa) {
-      let sci = t.sci, rank = t.rank;
-      if (!sci) { const sp = await jget(GBIF + 'species/' + t.key); sci = sp.canonicalName || sp.scientificName; rank = sp.rank; }
-      const r = await taxrefCount(sci, rank, 250, c => { const el = $('#trx'); if (el) el.textContent = `TAXREF : interrogation… (${c} requêtes)`; });
-      if (!r) throw new Error('groupe introuvable dans TAXREF');
-      n += r.n; partial = partial || r.partial; allTerr = allTerr || r.allTerr;
-    }
-    P.inv.taxref = { n, partial, allTerr };
-  } catch (e) { console.error('taxref', e); P.inv.taxref = { err: String(e.message || e) }; }
-  const el = $('#trx'); if (el && V.view === 'preview') el.textContent = taxrefText(P.inv.taxref);
+    const cc = P.inv.cc || await zoneCountry(N, keys); if (!cc) throw new Error('pays introuvable');
+    P.inv.cc = cc;
+    const base = { taxonKey: keys, country: cc, occurrenceStatus: 'PRESENT' }, mt = N.mode === 'sound' ? 'Sound' : 'StillImage';
+    const [all, med] = await Promise.all([facetCard(base), facetCard({ ...base, mediaType: mt })]);
+    P.inv.known = { cc, all, med };
+  } catch (e) { console.error('pays', e); P.inv.known = { err: String(e.message || e) }; }
+  const el = $('#trx'); if (el && V.view === 'preview') el.textContent = knownText(P.inv.known, NEWC && NEWC.mode);
 }
-const taxrefText = t => !t ? 'TAXREF : calcul en cours…' : t.err ? 'TAXREF : indisponible (' + t.err + ').' : `TAXREF : ${t.partial ? '≥ ' : ''}${t.n.toLocaleString('fr-FR')} espèces ${t.allTerr ? 'présentes en France (tous territoires)' : 'présentes en France métropolitaine'} pour ce groupe${t.partial ? ' (décompte partiel : groupe très vaste)' : ''}.`;
+const knownText = (t, mode) => !t ? 'Nombre d’espèces connues dans le pays : calcul en cours…' : t.err ? 'Nombre d’espèces connues dans le pays : indisponible (' + t.err + ').' : `${countryName(t.cc)} : ${t.all.toLocaleString('fr-FR')} espèces de ce groupe connues dans GBIF (au moins une observation), dont ${t.med.toLocaleString('fr-FR')} avec ${mode === 'sound' ? 'au moins un son' : 'au moins une photo'}.`;
 async function findSpecies() {
   const N = NEWC, F = RANKP[N.rank], un = UNITS[N.rank];
   if ((N.zk || 'circle') !== 'circle' && !(N.country || N.wkt)) return toast("Choisissez d'abord une zone dans la liste.");
   if (!N.taxa.length) return toast('Choisissez au moins un groupe taxonomique.');
+  if (N.mode === 'sound' && !S.xcKey && !N.xcAck) return modal(`<h3>Clé xeno-canto absente</h3><p>Sans clé API xeno-canto, l’application n’a accès qu’aux enregistrements déposés dans GBIF : <b>beaucoup moins de sons</b>, moins de choix de qualité, et plus d’espèces écartées faute d’enregistrement.</p><p>Avec une clé (gratuite, sur votre compte <a href="https://xeno-canto.org" target="_blank" rel="noopener">xeno-canto.org</a>), vous accédez à toute la base : enregistrements courts de qualité A, chants et cris équilibrés, espèces de fond signalées.</p><button class="btn pri" data-m="set">Ajouter ma clé (Réglages)</button><button class="btn" data-m="go">Continuer sans clé</button><button class="btn ghost" data-m="no">Annuler</button>`, a => { if (a === 'go') { N.xcAck = 1; findSpecies(); } else if (a === 'set') go('settings'); });
   const keys = N.taxa.map(t => t.key);
   busy('Inventaire des espèces dans GBIF…', null);
   try {
@@ -1034,11 +1038,24 @@ async function findSpecies() {
     inv.withMedia = med.length;
     list = list.filter(s => s.n >= S.minRecords);
     inv.kept = list.length;
-    if (N.mode === 'sound' && !S.xcKey) {
-      busy('Recherche des enregistrements sonores…');
-      const snd = await fetchAbundance(N, keys, { mediaType: 'Sound' }, F), m = new Map(snd.map(s => [s.k, s.n]));
-      list = list.filter(s => (m.get(s.k) || 0) >= 2);
-      inv.withSound = list.length;
+    if (!(N.mode === 'sound' && S.xcKey)) {
+      const mt = N.mode === 'sound' ? 'Sound' : 'StillImage', need = N.mode === 'sound' ? 2 : 1;
+      busy('Médias disponibles dans la zone…');
+      const mz = new Map((await fetchAbundance(N, keys, { mediaType: mt }, F)).map(s => [s.k, s.n]));
+      list.forEach(s => { s.mz = mz.get(s.k) || 0; });
+      const lack = list.filter(s => s.mz < need);
+      if (lack.length) {
+        busy('Médias hors de la zone…');
+        const gl = new Map(), fld = F.replace(/([A-Z])/g, '_$1').toUpperCase();
+        for (let i = 0; i < lack.length; i += 50) {
+          const j = await jget(GBIF + 'occurrence/search?' + qs({ [F]: lack.slice(i, i + 50).map(s => s.k), mediaType: mt, occurrenceStatus: 'PRESENT', limit: 0, facet: F, facetLimit: 100 }), { retries: 1 });
+          const f = (j.facets || []).find(x => x.field === fld); (f ? f.counts : []).forEach(c => gl.set(+c.name, c.count));
+        }
+        lack.forEach(s => { s.mg = gl.get(s.k) || 0; if (s.mg >= need) s.ext = true; });
+      }
+      const before = list.length;
+      list = list.filter(s => s.mz >= need || s.ext);
+      inv.outside = list.filter(s => s.ext).length; inv.noMedia = before - list.length; inv.withSound = N.mode === 'sound' ? list.length : undefined; inv.usable = list.length;
     }
     list.sort((a, b) => b.n - a.n);
     if (list.length < 4) throw new Error(`Seulement ${list.length} ${un[1]} utilisable(s) avec ces critères (${inv.species} espèces inventoriées). Élargissez le rayon, changez de groupe ou de niveau de précision, ou baissez le minimum d’observations dans Réglages.`);
@@ -1051,23 +1068,23 @@ async function findSpecies() {
     if (!cover) { busy('Biomes et écorégions…', 0); try { cover = N.cover = await computeCover(N, p => busy('Biomes et écorégions…', p)); } catch (e) { console.warn('cover', e); } }
     PREVIEW = { species: list, total, label, inv, cover };
     busy(false); go('preview');
-    if (isFrance(N)) runTaxref(N, PREVIEW);
+    runCountry(N, PREVIEW, keys);
   } catch (e) { busy(false); toast(e.message.startsWith('HTTP') || /fetch|Failed|abort/i.test(e.message) ? 'GBIF est injoignable. Vérifiez la connexion.' : e.message); if (!/^Seulement/.test(e.message)) console.error(e); else modal(`<h3>Liste trop courte</h3><p>${esc(e.message)}</p><button class="btn pri" data-m="ok">OK</button>`); }
 }
 function invSummary(inv, un, mode, n, withCover) {
   const mt = mode === 'sound' ? 'au moins un son' : 'au moins une photo';
-  return `<p class="hint">${inv.withMedia !== undefined ? `${inv.withMedia} espèces ont ${mt} dans GBIF pour cette zone. ` : ''}${inv.units !== undefined && un !== 'espèces' ? `Regroupées en ${inv.units} ${un}. ` : ''}${inv.kept !== undefined ? `${inv.kept} ${un} avec au moins ${S.minRecords} observations${inv.withSound !== undefined ? `, dont ${inv.withSound} avec des enregistrements sonores` : ''}. ` : ''}${n} retenus pour l’entraînement.</p>`;
+  return `<p class="hint">${inv.withMedia !== undefined ? `${inv.withMedia} espèces ont ${mt} dans GBIF pour cette zone. ` : ''}${inv.units !== undefined && un !== 'espèces' ? `Regroupées en ${inv.units} ${un}. ` : ''}${inv.kept !== undefined ? `${inv.kept} ${un} avec au moins ${S.minRecords} observations. ` : ''}${inv.outside !== undefined ? `${inv.kept - inv.outside - (inv.noMedia || 0)} ont assez de ${mode === 'sound' ? 'sons' : 'photos'} dans la zone ; ${inv.outside} n’en ont pas assez dans la zone, leurs médias seront pris ailleurs dans le pays ou dans le monde (signalé « hors zone » sous chaque média) ; ${inv.noMedia || 0} n’ont aucun ${mode === 'sound' ? 'son' : 'média'} exploitable dans GBIF et sont écartées. ` : ''}${n} retenus pour l’entraînement.</p>`;
 }
 function viewPreview() {
   if (!PREVIEW) return go('home');
   const N = NEWC, P = PREVIEW, fake = { species: P.species }, lv = levelsOf(fake), max = P.species[0].n;
-  const un = UNITS[N.rank][1], fr = isFrance(N);
+  const un = UNITS[N.rank][1];
   app.innerHTML = `<div class="row sp"><h2>Inventaire GBIF</h2><button class="btn ghost sm" data-act="back">Retour</button></div>
   <div class="card col" style="border-color:var(--accent)">
     <div><span style="font:800 2.4rem var(--font-d)">${P.inv.species}</span> <b>espèces inventoriées</b></div>
     <p>${esc(taxaLabel(N.taxa))} · ${esc(zoneDesc(N, P))}, d’après ${P.inv.records.toLocaleString('fr-FR')} observations GBIF depuis ${S.yearFrom}.</p>
     ${invSummary(P.inv, un, N.mode, P.species.length)}
-    ${fr ? `<p><b id="trx">${esc(taxrefText(P.inv.taxref))}</b></p><p class="hint">Comparez avec les ${P.inv.withMedia} espèces illustrées dans GBIF et les ${P.inv.species} espèces observées dans la zone.</p>` : ''}
+    <p><b id="trx">${esc(knownText(P.inv.known, N.mode))}</b></p><p class="hint">À comparer avec les ${P.inv.species} espèces observées dans la zone d’étude. Le décompte du pays se base sur les observations GBIF (toutes années) : une espèce jamais enregistrée dans GBIF n’y figure pas.</p>
     <p class="hint">Le classement repose sur le nombre d’observations : c’est une fréquence d’observation, pas un effectif.</p></div>
   ${P.cover ? `<div class="card col"><details><summary><b>Biomes et écorégions de la zone</b></summary><div class="col" style="margin-top:10px">${coverHTML(P.cover)}</div></details></div>` : ''}
   ${P.species.length > 150 ? `<div class="card col"><b>Groupe très riche (${P.species.length} ${un})</b><p class="hint">Valider chaque palier sur la totalité des ${un} serait irréaliste. Le mode grand groupe valide un palier avec le seuil de réussite sur les 30 dernières réponses, une fois 20 % des ${un} du palier étudiés (réglable dans Réglages).</p><button class="btn" data-act="bigMode">Activer le mode grand groupe</button></div>` : ''}
@@ -1141,7 +1158,7 @@ function viewCourse() {
     <div class="row"><button class="btn ${needTrain ? 'pri' : ''} grow" data-act="startTrain">Entraînement${needTrain ? ' (' + (m.untrained || keysRaw.length) + ' à étudier)' : ' : revoir'}</button>
     <button class="btn ${needTrain ? '' : 'pri'} grow" data-act="startTest" ${Object.keys(c.trained).length < 2 ? 'disabled' : ''}>Test</button></div>
     ${c.completed ? '<p class="chip ok">Parcours terminé : toutes les espèces sont maîtrisées. Continuez les tests pour entretenir vos acquis.</p>' : ''}</section>
-  ${c.inv ? `<section class="card col"><h3>Inventaire GBIF</h3><p><b>${c.inv.species}</b> espèces inventoriées dans la zone${c.inv.withMedia !== undefined ? `, dont <b>${c.inv.withMedia}</b> avec ${c.mode === 'sound' ? 'au moins un son' : 'au moins une photo'}` : ''}.</p>${c.inv.taxref && !c.inv.taxref.err ? `<p>${esc(taxrefText(c.inv.taxref))}</p>` : ''}${c.cover ? `<details><summary>Biomes et écorégions de la zone</summary><div class="col" style="margin-top:10px">${coverHTML(c.cover)}</div></details>` : ''}</section>` : ''}
+  ${c.inv ? `<section class="card col"><h3>Inventaire GBIF</h3><p><b>${c.inv.species}</b> espèces inventoriées dans la zone${c.inv.withMedia !== undefined ? `, dont <b>${c.inv.withMedia}</b> avec ${c.mode === 'sound' ? 'au moins un son' : 'au moins une photo'}` : ''}.</p>${c.inv.known && !c.inv.known.err ? `<p>${esc(knownText(c.inv.known, c.mode))}</p>` : ''}${c.inv.outside ? `<p class="hint">${c.inv.outside} ${c.rank === 'species' ? 'espèces' : 'unités'} n’ont pas assez de médias dans la zone : leurs médias sont pris dans le pays ou dans le monde, et signalés « hors zone ».</p>` : ''}${c.cover ? `<details><summary>Biomes et écorégions de la zone</summary><div class="col" style="margin-top:10px">${coverHTML(c.cover)}</div></details>` : ''}</section>` : ''}
   <section class="card col"><h3>Pour aller plus loin</h3>
     <button class="btn block" data-act="startCompare" ${Object.keys(c.trained).length < 2 ? 'disabled' : ''}>Comparer deux ${U(c)[1]} proches</button>
     ${m.total > 150 && !(S.window > 0 && S.coverage < 100) ? '<button class="btn block" data-act="bigMode">Activer le mode grand groupe</button><p class="hint">Valide un palier avec 90 % sur les 30 dernières réponses, une fois 20 % des espèces du palier étudiées.</p>' : ''}
@@ -1173,7 +1190,7 @@ async function buildChunk(ci) {
   const keys = T.chunks[ci].filter(k => !c.dead[k] && NAMES[k]);
   await pool(keys, 5, async k => {
     per[k] = []; const avoid = new Set();
-    for (let s = 0; s < shots; s++) { try { const it = await nextMedia(c, k, avoid); if (!it) break; avoid.add(it.creator || it.id); per[k].push(it); } catch { break; } }
+    for (let s = 0; s < shots; s++) { try { const it = await nextMedia(c, k, avoid, true); if (!it) break; avoid.add(it.creator || it.id); per[k].push(it); } catch { break; } }
     if (per[k].length < Math.min(2, shots)) { c.dead[k] = 1; delete per[k]; }
     busy(`Recherche des médias… ${++done}/${keys.length}`, done / keys.length);
   });
@@ -1214,7 +1231,7 @@ async function ensureAsset(c, card) {
   if (card.asset) return card.asset;
   for (let a = 0; a < 5; a++) {
     try { card.asset = await loadAsset(c, card.item); if (c.mode === 'photo') card.asset = card.asset.cloneNode ? card.asset : card.asset; return card.asset; }
-    catch { poolOf(c, card.k).bad.add(card.item.id); const it = await nextMedia(c, card.k); if (!it) throw new Error('none'); card.item = it; }
+    catch { poolOf(c, card.k).bad.add(card.item.id); const it = await nextMedia(c, card.k, new Set(), true); if (!it) throw new Error('none'); card.item = it; }
   }
   throw new Error('fail');
 }
@@ -1336,8 +1353,18 @@ function startTimer() {
   tb.style.transition = `width ${S.timeLimit}s linear`; tb.style.width = '0%';
   X.timer = setTimeout(() => { if (X && !X.answered && X.cur) { submitAnswer([''], true, 'timeout'); } }, S.timeLimit * 1000);
 }
+function bgMatch(texts, item, c) {
+  const cands = [];
+  (item.also || []).forEach(a => { const na = norm(a); cands.push(na); c.species.forEach(sp => { const an = acceptedNames(sp.k); if (an.includes(na)) cands.push(...an); }); });
+  return texts.some(t => { const a = norm(t); if (!a) return false; return cands.some(n => lev(a, n) <= tol(n.replace(/ /g, '').length)); });
+}
 function submitAnswer(texts, idk, why) {
-  if (X.answered || !X.cur) return; X.answered = true;
+  if (X.answered || !X.cur) return;
+  if (!idk && X.cur.item.also && X.cur.item.also.length && !evalAnswers(texts, X.cur.k, trainedKeys(X.c)).ok && bgMatch(texts, X.cur.item, X.c)) {
+    $('#fb').innerHTML = '<div class="card col" style="border-color:var(--accent)"><b>Cette espèce est bien audible, mais en arrière-plan.</b><p>Une autre espèce est présente sur l’enregistrement : c’est elle, la cible. Donnez une nouvelle réponse (cet essai n’est pas compté).</p></div>';
+    const a = $('#answer'); if (a) { a.value = ''; a.focus({ preventScroll: true }); } X.voice = null; onAnswerInput(); return;
+  }
+  X.answered = true;
   clearTimeout(X.timer); const c = X.c, t = X.cur, keys = trainedKeys(c), rt = Math.round(performance.now() - t.t0);
   const r = idk ? { ok: false, conf: 0 } : evalAnswers(texts, t.k, keys), k = t.k;
   const st = c.stats[k] || (c.stats[k] = { n: 0, ok: 0, bits: '' });
@@ -1421,7 +1448,7 @@ async function loadPair() {
   const c = CP.c, [a, b] = CP.pairs[CP.pi], shots = c.mode === 'photo' ? 3 : 2; CP.cards = {};
   await Promise.all([a, b].map(async k => {
     const arr = [], avoid = new Set();
-    for (let s = 0; s < shots; s++) { const it = await nextMedia(c, k, avoid); if (!it) break; avoid.add(it.creator || it.id); const card = { k, item: it }; try { await ensureAsset(c, card); arr.push(card); } catch {} }
+    for (let s = 0; s < shots; s++) { const it = await nextMedia(c, k, avoid, true); if (!it) break; avoid.add(it.creator || it.id); const card = { k, item: it }; try { await ensureAsset(c, card); arr.push(card); } catch {} }
     CP.cards[k] = arr;
   }));
   if (!CP.cards[a].length || !CP.cards[b].length) throw new Error('none');
@@ -1598,11 +1625,19 @@ function viewMethod() {
   <li>Goldstone (1998). Perceptual learning. <i>Annual Review of Psychology</i>.</li></ul></section>
   <section class="card col"><h3>Origine du projet</h3>
   <p>Cette application est née d'une idée de <b>Maxime Cauchoix</b> (SETE, CNRS) et a été codée par <b>Claude</b> (Anthropic), à partir de ses demandes successives.</p></section>
-  <section class="card col"><h3>Coût carbone de la création (estimation)</h3>
-  <p>Le développement a nécessité <b>5 demandes</b> (6 messages, l'une ayant été envoyée deux fois) et environ <b>2 à 3 heures de calcul cumulé</b> : génération du code, appels d'outils et tests automatisés.</p>
-  <p>Hypothèses : une session assistée par un grand modèle mobilise en moyenne l'équivalent de 150 à 300 W de serveur (part d'un nœud GPU partagé, refroidissement compris) et l'électricité émet 0,2 à 0,45 kg CO₂e par kWh. Cela donne <b>environ 0,4 à 0,8 kWh</b>, soit <b>environ 0,1 à 0,35 kg de CO₂e</b> (de l'ordre de 0,5 à 2 km en voiture thermique).</p>
-  <p class="hint">Ce chiffre est un ordre de grandeur, pas une mesure : Anthropic ne publie pas la consommation par requête, la durée de calcul est estimée à la louche, et l'estimation exclut l'entraînement du modèle, la fabrication des serveurs et les appareils de l'utilisateur. L'usage de l'application elle-même ne mobilise aucun serveur : tout s'exécute dans votre navigateur, avec des requêtes vers GBIF.</p></section>
-  <section class="card col"><h3>Sources de données</h3><p>Occurrences, images, sons, noms valides et noms français : <a href="https://www.gbif.org" target="_blank" rel="noopener">GBIF</a> (Backbone Taxonomy) ; noms français complémentaires : <a href="https://taxref.mnhn.fr" target="_blank" rel="noopener">TAXREF</a> ; sons : GBIF et <a href="https://xeno-canto.org" target="_blank" rel="noopener">xeno-canto</a> ; biomes et écorégions : <a href="https://ecoregions.appspot.com" target="_blank" rel="noopener">RESOLVE Ecoregions 2017</a> ; contours des régions : geo.api.gouv.fr ; fonds de carte OpenTopoMap, Esri et contributeurs OpenStreetMap. Les crédits et licences de chaque média sont affichés sous l’image.</p></section>`;
+  <section class="card col"><h3>Coût environnemental de la création (estimation)</h3>
+  <p>Le développement a nécessité <b>11 demandes</b> (12 messages, l'une ayant été envoyée deux fois) et environ <b>3 à 4 heures de calcul cumulé</b> : génération du code, appels d'outils et tests automatisés.</p>
+  <h4>1. Électricité d'usage</h4>
+  <p>Hypothèses : l'équivalent de 150 à 300 W de serveur (part d'un nœud GPU partagé, refroidissement compris) et 0,2 à 0,45 kg CO₂e par kWh. On obtient <b>0,5 à 1 kWh</b> et <b>0,1 à 0,45 kg CO₂e</b>.</p>
+  <h4>2. Entraînement du modèle et fabrication des serveurs</h4>
+  <p>Hypothèses (non publiées par Anthropic, reprises de la littérature sur les grands modèles, par ex. BLOOM) : part de l'entraînement du modèle amortie sur l'ensemble de ses usages, <b>+20 à 60 %</b> de l'énergie d'usage ; fabrication, transport, construction et maintenance des serveurs et des bâtiments (émissions « incorporées »), <b>+20 à 40 %</b>. Facteur global de <b>×1,4 à ×2,0</b>.</p>
+  <p><b>Bilan carbone : environ 0,15 à 0,9 kg CO₂e</b> (valeur centrale vers 0,4 kg), soit de l'ordre de 1 à 5 km en voiture thermique.</p>
+  <h4>3. Eau</h4>
+  <p>Selon <a href="https://arxiv.org/abs/2304.03271" target="_blank" rel="noopener">Li et al. (2023), « Making AI Less Thirsty »</a>, la moyenne des États-Unis est de 0,55 L/kWh consommés sur site (refroidissement) et 3,14 L/kWh pour produire l'électricité, soit environ <b>4,2 L par kWh</b> ; les auteurs jugent ce chiffre prudent, la réalité pouvant être plusieurs fois supérieure. Appliqué à l'énergie d'usage, puis au même facteur ×1,4 à ×2,0 pour l'entraînement et la fabrication (l'eau de fabrication des puces n'est pas documentée précisément) : <b>environ 3 à 9 litres d'eau</b>, soit quelques bouteilles. Cette valeur dépend beaucoup du lieu et du réseau électrique, que nous ne connaissons pas.</p>
+  <h4>4. Biodiversité</h4>
+  <p>Il n'existe pas de mesure directe pour un usage d'IA. Le seul calcul possible passe par le climat : avec un facteur d'analyse du cycle de vie de l'ordre de 1 à 3 × 10⁻⁹ espèce·an par kg CO₂e pour les écosystèmes terrestres (famille de méthodes ReCiPe 2016 ; ordre de grandeur donné de mémoire, non revérifié ici), le bilan carbone ci-dessus correspond à environ <b>10⁻¹⁰ à 3 × 10⁻⁹ espèce·an</b>, c'est-à-dire un effet minuscule par projet, mais qui s'additionne avec le nombre d'usages. Ce calcul ne couvre <b>pas</b> l'occupation des sols par les centres de données, l'extraction des métaux, ni le stress hydrique local, qui sont les impacts les plus directs sur la biodiversité mais qu'on ne sait pas attribuer à un projet donné.</p>
+  <p class="hint">Ce sont des ordres de grandeur, pas des mesures : Anthropic ne publie pas la consommation par requête, la durée de calcul est estimée à la louche, et les parts « entraînement » et « fabrication » sont des hypothèses larges. Les appareils de l'utilisateur ne sont pas comptés. L'usage de l'application elle-même ne mobilise aucun serveur : tout s'exécute dans votre navigateur, avec des requêtes vers GBIF.</p></section>
+  <section class="card col"><h3>Sources de données</h3><p>Occurrences, images, sons, noms valides et noms français : <a href="https://www.gbif.org" target="_blank" rel="noopener">GBIF</a> (Backbone Taxonomy)  ; sons : GBIF et <a href="https://xeno-canto.org" target="_blank" rel="noopener">xeno-canto</a> ; biomes et écorégions : <a href="https://ecoregions.appspot.com" target="_blank" rel="noopener">RESOLVE Ecoregions 2017</a> ; contours des régions : geo.api.gouv.fr ; fonds de carte OpenTopoMap, Esri et contributeurs OpenStreetMap. Les crédits et licences de chaque média sont affichés sous l’image.</p></section>`;
 }
 
 /* ---------- réglages ---------- */
@@ -1674,7 +1709,7 @@ const ACT = {
   cover: showCover,
   trainBad: async () => {
     const card = T.cards[T.i]; if (!card) return; markBad(T.c, card.k, card.item, 'entrainement'); busy('Nouvelle image…');
-    try { const it = await nextMedia(T.c, card.k); if (!it) throw 0; card.item = it; card.asset = null; busy(false); viewTrain(); }
+    try { const it = await nextMedia(T.c, card.k, new Set(), true); if (!it) throw 0; card.item = it; card.asset = null; busy(false); viewTrain(); }
     catch { busy(false); toast('Plus d\'autre image pour ce label : carte retirée.'); T.cards.splice(T.i, 1); viewTrain(); }
   },
   reportId: reportIdModal,
