@@ -1,0 +1,1754 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FieldNaturalistTrainer</title>
+<meta name="theme-color" content="#2e6b4d">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" defer></script>
+<style>
+/* Concept : carnet de terrain lisible en plein soleil. Fond lichen, encre vert très sombre, un seul accent mousse. */
+:root{
+  --bg:#eef1ea;--surface:#f9fbf6;--ink:#16241d;--muted:#5b6b62;--line:#d3dbcf;
+  --accent:#2e6b4d;--accent-ink:#ffffff;--accent-soft:#dbe8df;
+  --ok:#2e7d4f;--ok-soft:#dcefe2;--bad:#b3412f;--bad-soft:#f6e0da;--gold:#b9831a;--chip:#e2e8dc;
+  --font-d:'Bricolage Grotesque','Avenir Next',system-ui,sans-serif;
+  --font-b:'Atkinson Hyperlegible','Segoe UI',system-ui,sans-serif;
+  --font-m:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f1815;--surface:#17231e;--ink:#e3ece5;--muted:#95a89c;--line:#2a3a33;
+  --accent:#6fcf9f;--accent-ink:#0b1a13;--accent-soft:#1d3329;
+  --ok:#6fcf9f;--ok-soft:#173226;--bad:#ef8a74;--bad-soft:#3a1f1a;--gold:#e5b44a;--chip:#1f2d26;color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:17px/1.45 var(--font-b);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(76px + env(safe-area-inset-bottom,0px));-webkit-text-size-adjust:100%}
+#app{max-width:760px;margin:0 auto;padding-block:16px;display:flex;flex-direction:column;gap:16px}
+h1,h2,h3{font-family:var(--font-d);line-height:1.15;margin:0;text-wrap:balance}
+h1{font-size:1.9rem;font-weight:800;letter-spacing:-.02em}
+h2{font-size:1.3rem;font-weight:800}
+h3{font-size:1.05rem;font-weight:600}
+p{margin:0}
+.hint{color:var(--muted);font-size:.9rem}
+.mono{font-family:var(--font-m);font-variant-numeric:tabular-nums}
+.sci{font-style:italic}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.row.sp{justify-content:space-between}
+.grow{flex:1;min-width:0}
+.col{display:flex;flex-direction:column;gap:10px;min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+.card.plain{border:0;background:transparent;padding:0}
+.btn{font:inherit;font-weight:700;border:1.5px solid var(--accent);background:transparent;color:var(--accent);border-radius:12px;padding:12px 16px;min-height:48px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none}
+.btn.pri{background:var(--accent);color:var(--accent-ink)}
+.btn.ghost{border-color:var(--line);color:var(--ink)}
+.btn.sm{min-height:36px;padding:6px 12px;font-size:.9rem}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.block{width:100%}
+.btn.danger{border-color:var(--bad);color:var(--bad)}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+input[type=text],input[type=number],input[type=password],select{font:inherit;color:var(--ink);background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;min-height:48px;width:100%;min-width:0}
+input[type=range]{width:100%;accent-color:var(--accent)}
+label.f{display:flex;flex-direction:column;gap:6px;font-weight:700;font-size:.92rem}
+label.f small{font-weight:400;color:var(--muted)}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border-radius:999px;padding:3px 10px;font-size:.82rem;white-space:nowrap}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}
+.chip.bad{background:var(--bad-soft);color:var(--bad)}
+.bar{height:8px;border-radius:99px;background:var(--chip);overflow:hidden;position:relative}
+.bar>i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .3s}
+.bar .thr{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink);opacity:.6}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);display:flex;justify-content:center;padding:6px max(8px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px));z-index:20}
+nav.tabs>div{display:flex;max-width:760px;width:100%;gap:2px}
+nav.tabs button{flex:1;background:none;border:0;color:var(--muted);font:inherit;font-size:.7rem;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px;border-radius:10px;cursor:pointer;min-height:48px}
+nav.tabs button[aria-current=page]{color:var(--accent);background:var(--accent-soft);font-weight:700}
+nav.tabs svg{width:22px;height:22px}
+#map{height:300px;border-radius:12px;border:1px solid var(--line);background:var(--chip)}
+.media{display:flex;flex-direction:column;gap:8px}
+.media img.photo{width:100%;max-height:52vh;min-height:220px;object-fit:contain;background:#0b120f;border-radius:12px;display:block}
+.attr{font-size:.76rem;color:var(--muted);overflow-wrap:anywhere}
+.attr a{color:inherit}
+.spec{position:relative;height:170px;border-radius:12px;overflow:hidden;background:#0b1020}
+.spec canvas,.spec img{position:absolute;inset:0;width:100%;height:100%}
+.spec .ph{position:absolute;top:0;bottom:0;width:2px;background:#fff;opacity:.85;left:0}
+.spec .ax{position:absolute;left:4px;font:11px var(--font-m);color:#fff;opacity:.8;text-shadow:0 0 3px #000}
+.spec .nospec{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#c8d3cc;font-size:.85rem;padding:12px;text-align:center}
+.namebox{text-align:center;display:flex;flex-direction:column;gap:2px;padding:6px 0}
+.namebox .fr{font:800 1.7rem/1.1 var(--font-d)}
+.namebox .fr.sci{font-style:italic}
+.namebox .sub{font-size:1.2rem;line-height:1.25;color:var(--muted)}
+.cmp .namebox .fr{font-size:1.15rem}.cmp .namebox .sub{font-size:1rem}
+.chip .x{background:none;border:0;color:inherit;font:inherit;cursor:pointer;padding:0 2px;min-width:24px}
+.trow{display:flex;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line)}
+.trow input[type=checkbox]{width:22px;height:22px;flex:none;accent-color:var(--accent)}
+.tname{flex:1;min-width:0;text-align:left;background:none;border:0;font:inherit;color:inherit;cursor:pointer;min-height:44px;overflow-wrap:anywhere}
+.crumbs{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.specctl{gap:8px 12px;font-size:.82rem}
+.specctl label{display:flex;align-items:center;gap:4px}
+.specctl input[type=number]{width:74px;min-height:34px;padding:2px 8px}
+.zbtn{align-self:flex-start}
+.zoom{background:rgba(0,0,0,.94);padding:0;touch-action:none;overflow:hidden}
+.zoom img{max-width:100vw;max-height:100vh;transform-origin:center;user-select:none;-webkit-user-drag:none;touch-action:none}
+.zoom .zbar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;justify-content:center;padding:12px 12px calc(12px + env(safe-area-inset-bottom,0px));background:linear-gradient(transparent,rgba(0,0,0,.7))}
+.zoom .zbar .btn{background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.4)}
+.zoom .zbar .btn.pri{background:#fff;color:#111}
+textarea.t{width:100%;font:inherit;padding:10px 12px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);min-height:96px}
+.fb{border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.fb.ok{background:var(--ok-soft)}.fb.bad{background:var(--bad-soft)}
+.refs{display:flex;gap:6px}.refs img{flex:1;min-width:0;height:84px;object-fit:cover;border-radius:8px}
+.lvl{display:flex;gap:12px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.lvl[aria-current=true]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.lvl[disabled]{opacity:.5;cursor:default}
+.lvl .no{font:800 1.3rem var(--font-d);width:34px;height:34px;border-radius:50%;background:var(--chip);display:flex;align-items:center;justify-content:center;flex:none}
+.lvl.done .no{background:var(--ok);color:var(--accent-ink)}
+.seg{display:flex;border:1.5px solid var(--line);border-radius:12px;overflow:hidden}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cmp .media img.photo{min-height:100px;max-height:30vh}
+.cmp .spec{height:110px}
+#tb i{background:var(--bad);transition:none}
+.seg button{flex:1;padding:12px 4px!important;font:inherit;background:var(--surface);color:var(--ink);border:0;padding:12px;cursor:pointer;min-height:48px}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);font-weight:700}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
+.tile b{display:block;font:800 1.5rem var(--font-d)}
+.tile span{font-size:.82rem;color:var(--muted)}
+.badges{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
+.bd{display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;font-size:.8rem}
+.medal{width:72px;height:72px}.medal.off{opacity:.5}
+.overlay{position:fixed;inset:0;background:rgba(10,18,14,.6);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
+.overlay .box{background:var(--surface);border-radius:16px;padding:20px;max-width:440px;width:100%;display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow:auto}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(90px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;z-index:60;max-width:90vw;font-size:.9rem}
+.spin{width:28px;height:28px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--accent);animation:sp 1s linear infinite;margin:0 auto}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation-duration:3s}.bar>i{transition:none}}
+.sug{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.sug button{font:inherit;text-align:left;background:var(--surface);color:var(--ink);border:0;border-bottom:1px solid var(--line);padding:10px 12px;cursor:pointer;min-height:44px}
+.sug button.sel{background:var(--accent);color:#fff}.sug button.sel .hint{color:#fff}
+.sug button:last-child{border:0}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+td,th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left}
+.scroll{overflow-x:auto}
+svg.chart text{fill:var(--muted);font:11px var(--font-m)}
+.nmslot{margin:-2px 0 2px}.nmslot:empty{display:none}.listen{align-self:center;min-height:36px;padding:4px 14px;font-size:.85rem}
+.mic.on{background:var(--bad);border-color:var(--bad);color:#fff}
+ul.refs-list{padding-left:18px;margin:0;display:flex;flex-direction:column;gap:6px;font-size:.9rem}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<nav class="tabs" id="tabs" aria-label="Navigation principale"></nav>
+<div id="layer"></div>
+
+<script>
+'use strict';
+const ERRLOG = (() => { try { return JSON.parse(localStorage.getItem('fnt.errlog') || '[]'); } catch { return []; } })();
+function logErr(kind, msg, extra) {
+  try { ERRLOG.push({ t: new Date().toISOString(), kind, msg: String(msg).slice(0, 500), extra: String(extra || '').slice(0, 900) }); while (ERRLOG.length > 60) ERRLOG.shift(); localStorage.setItem('fnt.errlog', JSON.stringify(ERRLOG)); } catch {}
+}
+window.addEventListener('error', e => logErr('error', e.message, (e.filename || '') + ':' + e.lineno + ':' + e.colno + ' ' + (e.error && e.error.stack || '')));
+window.addEventListener('unhandledrejection', e => logErr('promise', (e.reason && e.reason.message) || e.reason, e.reason && e.reason.stack));
+const _consoleError = console.error.bind(console);
+console.error = (...a) => { try { logErr('console', a.map(x => (x && x.message) || String(x)).join(' '), a[0] && a[0].stack); } catch {} _consoleError(...a); };
+/* =====================================================================
+   FieldNaturalistTrainer — entraînement au "jizz" à partir de GBIF
+   Tout tourne côté navigateur ; la progression est stockée en localStorage.
+   ===================================================================== */
+
+/* ---------- utilitaires ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+const qs = o => Object.entries(o).flatMap(([k, v]) => v === undefined || v === '' ? [] : Array.isArray(v) ? v.map(x => k + '=' + encodeURIComponent(x)) : [k + '=' + encodeURIComponent(v)]).join('&');
+async function pool(items, n, fn) { let i = 0; await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) { const x = items[i++]; await fn(x); } })); }
+const median = a => { if (!a.length) return 0; const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
+
+const mem = {};
+const LS = {
+  get(k, d) { try { const v = localStorage.getItem(k); if (v != null) return JSON.parse(v); } catch {} return k in mem ? mem[k] : d; },
+  set(k, v) { mem[k] = v; try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+
+/* ---------- constantes ---------- */
+const GBIF = 'https://api.gbif.org/v1/';
+const BACKBONE = 'd7dddbf4-2cf0-4f39-9b2a-bb099caae36c';
+const XC_DS = 'b1047888-ae52-4179-9dd5-5448ea342a24';
+const RANKP = { species: 'speciesKey', genus: 'genusKey', family: 'familyKey' };
+const UNITS = { species: ['espèce', 'espèces', 'nouvelle espèce'], genus: ['genre', 'genres', 'nouveau genre'], family: ['famille', 'familles', 'nouvelle famille'] };
+const U = c => UNITS[(c && c.rank) || 'species'];
+const LEVEL_DEFS = [
+  { name: 'Débutant', pct: 5 }, { name: 'Facile', pct: 10 }, { name: 'Intermédiaire', pct: 25 },
+  { name: 'Difficile', pct: 50 }, { name: 'Expert', pct: 100 }
+];
+const TIER_COLORS = ['#b07a4a', '#aab2b8', '#d4a72c', '#6ec6d8', '#9a8cf5'];
+const PRESETS = [
+  { key: 212, label: 'Oiseaux', sci: 'Aves', rank: 'CLASS', snd: 1 }, { key: 359, label: 'Mammifères', sci: 'Mammalia', rank: 'CLASS', snd: 1 }, { key: 734, label: 'Chauves-souris', sci: 'Chiroptera', rank: 'ORDER', snd: 1 },
+  { key: 131, label: 'Amphibiens', sci: 'Amphibia', rank: 'CLASS', snd: 1 }, { key: 358, label: 'Reptiles', sci: 'Reptilia', rank: 'CLASS' }, { key: 1458, label: 'Orthoptères (sauterelles, criquets)', sci: 'Orthoptera', rank: 'ORDER', snd: 1 },
+  { key: 797, label: 'Papillons (Lépidoptères)', sci: 'Lepidoptera', rank: 'ORDER' }, { key: 789, label: 'Libellules (Odonates)', sci: 'Odonata', rank: 'ORDER' }, { key: 1470, label: 'Coléoptères', sci: 'Coleoptera', rank: 'ORDER' },
+  { key: 1457, label: 'Hyménoptères', sci: 'Hymenoptera', rank: 'ORDER' }, { key: 811, label: 'Diptères', sci: 'Diptera', rank: 'ORDER' }, { key: 1496, label: 'Araignées', sci: 'Araneae', rank: 'ORDER' },
+  { key: 204, label: 'Poissons (Actinoptérygiens)', sci: 'Actinopterygii', rank: 'CLASS' }, { key: 7707728, label: 'Plantes vasculaires', sci: 'Tracheophyta', rank: 'PHYLUM' }, { key: 5, label: 'Champignons', sci: 'Fungi', rank: 'KINGDOM' }
+];
+const ROOTS = [{ key: 1, sci: 'Animalia', label: 'Animaux', rank: 'KINGDOM' }, { key: 6, sci: 'Plantae', label: 'Plantes', rank: 'KINGDOM' }, { key: 5, sci: 'Fungi', label: 'Champignons', rank: 'KINGDOM' }, { key: 4, sci: 'Chromista', label: 'Chromistes', rank: 'KINGDOM' }, { key: 7, sci: 'Protozoa', label: 'Protozoaires', rank: 'KINGDOM' }, { key: 3, sci: 'Bacteria', label: 'Bactéries', rank: 'KINGDOM' }, { key: 2, sci: 'Archaea', label: 'Archées', rank: 'KINGDOM' }];
+const RANK_FR = { KINGDOM: 'règne', SUBKINGDOM: 'sous-règne', PHYLUM: 'embranchement', SUBPHYLUM: 'sous-embr.', SUPERCLASS: 'super-classe', CLASS: 'classe', SUBCLASS: 'sous-classe', INFRACLASS: 'infra-classe', SUPERORDER: 'super-ordre', ORDER: 'ordre', SUBORDER: 'sous-ordre', INFRAORDER: 'infra-ordre', PARVORDER: 'parvordre', SUPERFAMILY: 'super-famille', FAMILY: 'famille', SUBFAMILY: 'sous-famille', TRIBE: 'tribu', SUBTRIBE: 'sous-tribu', GENUS: 'genre', SUBGENUS: 'sous-genre', SECTION: 'section', SERIES: 'série', SPECIES: 'espèce', SUBSPECIES: 'sous-espèce', COHORT: 'cohorte', DIVISION: 'division', UNRANKED: 'non classé' };
+const LIFE = { ADULT: 'adulte', JUVENILE: 'juvénile', IMMATURE: 'immature', LARVA: 'larve', PUPA: 'nymphe/pupe', NYMPH: 'nymphe', EGG: 'œuf', IMAGO: 'imago', SUBADULT: 'subadulte', SPORE: 'spore', SEED: 'graine', EMBRYO: 'embryon' };
+const lifeFr = x => { const k = String(x || '').trim().toUpperCase().replace(/[ -]/g, '_'); return LIFE[k] || String(x || '').trim().toLowerCase(); };
+const BIOMES_FR = { 1: 'Forêts tropicales et subtropicales humides', 2: 'Forêts tropicales et subtropicales sèches', 3: 'Forêts de conifères tropicales et subtropicales', 4: 'Forêts tempérées de feuillus et mixtes', 5: 'Forêts tempérées de conifères', 6: 'Forêts boréales / taïga', 7: 'Prairies, savanes et fourrés tropicaux et subtropicaux', 8: 'Prairies, savanes et fourrés tempérés', 9: 'Prairies et savanes inondées', 10: 'Prairies et fourrés de montagne', 11: 'Toundra', 12: 'Forêts, bois et maquis méditerranéens', 13: 'Déserts et fourrés xériques', 14: 'Mangroves' };
+const DEFAULTS = { threshold: 90, trainShots: 4, blockSize: 10, sessionLen: 20, yearFrom: new Date().getFullYear() - 20, minRecords: 2, xcKey: '', zoneFirst: true, timeLimit: 0, testShots: 0, window: 0, coverage: 100, nameFirst: 'fr', autocomplete: true, specFmin: 0, specFmax: 0, timeExp: false };
+let S = { ...DEFAULTS, ...LS.get('fnt.settings', {}) };
+const saveSettings = () => LS.set('fnt.settings', S);
+let COURSES = LS.get('fnt.courses', {});
+const NAMES = LS.get('fnt.names', {});
+const saveCourses = () => LS.set('fnt.courses', COURSES);
+const saveNames = () => LS.set('fnt.names', NAMES);
+const BAD = Object.assign({ items: {}, ds: {}, owner: {}, log: [] }, LS.get('fnt.bad', {}));
+const ownerOf = it => String(it.creator || '').trim().toLowerCase();
+const penalty = it => (it.ds && it.ds !== 'xeno-canto' && it.ds !== XC_DS ? BAD.ds[it.ds] || 0 : 0) + (ownerOf(it) ? BAD.owner[ownerOf(it)] || 0 : 0);
+function markBad(c, k, item, why) {
+  if (!item) return;
+  BAD.items[item.id] = Date.now();
+  if (item.ds) BAD.ds[item.ds] = (BAD.ds[item.ds] || 0) + 1;
+  const o = ownerOf(item); if (o) BAD.owner[o] = (BAD.owner[o] || 0) + 1;
+  BAD.log.push({ t: Date.now(), id: item.id, occ: item.occ, ds: item.ds, dsn: item.dsn, owner: o, k, why });
+  if (BAD.log.length > 500) BAD.log.shift();
+  LS.set('fnt.bad', BAD);
+  if (c) poolOf(c, k).bad.add(item.id);
+}
+
+/* ---------- réseau ---------- */
+async function jget(url, { retries = 2, timeout = 20000 } = {}) {
+  for (let i = 0; ; i++) {
+    const ac = new AbortController(); const to = setTimeout(() => ac.abort(), timeout);
+    try {
+      const r = await fetch(url, { signal: ac.signal }); clearTimeout(to);
+      if (!r.ok) { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+      return await r.json();
+    } catch (e) {
+      clearTimeout(to);
+      if (i >= retries || (e.status && e.status < 500 && e.status !== 429)) throw e;
+      await sleep(600 * (i + 1));
+    }
+  }
+}
+function circleWKT({ lat, lon, r }, n = 36) {
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const th = 2 * Math.PI * (i % n) / n; // sens anti-horaire exigé par GBIF
+    const la = clamp(lat + (r * Math.sin(th)) / 111.32, -89.9, 89.9);
+    let lo = lon + (r * Math.cos(th)) / (111.32 * Math.cos(lat * Math.PI / 180));
+    if (lo > 180) lo -= 360; if (lo < -180) lo += 360;
+    pts.push(lo.toFixed(5) + ' ' + la.toFixed(5));
+  }
+  return 'POLYGON((' + pts.join(',') + '))';
+}
+const zoneGeo = z => z.country ? { country: z.country } : { geometry: z.wkt || circleWKT(z) };
+async function fetchAbundance(zone, taxonKey, extra = {}, field = 'speciesKey') {
+  const out = [], lim = 500;
+  for (let off = 0; off < lim * 12; off += lim) {
+    const j = await jget(GBIF + 'occurrence/search?' + qs({
+      taxonKey, ...zoneGeo(zone), hasCoordinate: 'true', hasGeospatialIssue: 'false', occurrenceStatus: 'PRESENT',
+      year: S.yearFrom + ',' + new Date().getFullYear(), limit: 0, facet: field, facetLimit: lim, facetOffset: off, ...extra
+    }));
+    const f = (j.facets || []).find(x => x.field === field.replace(/([A-Z])/g, '_$1').toUpperCase());
+    const cs = f ? f.counts : [];
+    cs.forEach(c => out.push({ k: +c.name, n: c.count }));
+    if (cs.length < lim) break;
+  }
+  return out;
+}
+
+/* ---------- noms : GBIF Backbone (nom valide) + vernaculaire français (GBIF, puis TAXREF) ---------- */
+const splitNames = arr => [...new Set(arr.flatMap(x => String(x).split(/[,;]/)).map(x => tidyName(x)).filter(x => x.length > 1))].slice(0, 12);
+const tidyName = s => { s = (s || '').trim(); if (s === s.toUpperCase()) s = s.toLowerCase(); return cap(s); };
+async function resolveName(k) {
+  if (NAMES[k] && NAMES[k].sci) return NAMES[k];
+  let sp = await jget(GBIF + 'species/' + k);
+  if (sp.acceptedKey && sp.taxonomicStatus && !/^ACCEPTED/.test(sp.taxonomicStatus)) sp = await jget(GBIF + 'species/' + sp.acceptedKey);
+  const sci = sp.canonicalName || sp.scientificName;
+  let frAll = [], en = '';
+  try {
+    const v = await jget(GBIF + 'species/' + sp.key + '/vernacularNames?limit=200', { retries: 1 });
+    const rs = v.results || [];
+    const score = x => (x.preferred ? 2 : 0) + (/taxref|inpn|mnhn/i.test(x.source || '') ? 1 : 0);
+    frAll = splitNames(rs.filter(x => x.language === 'fra').sort((a, b) => score(b) - score(a)).map(x => x.vernacularName));
+    const e = rs.find(x => x.language === 'eng'); en = e ? tidyName(e.vernacularName) : '';
+  } catch {}
+  if (!frAll.length) {
+    try {
+      const t = await jget('https://taxref.mnhn.fr/api/taxa/search?' + qs({ scientificNames: sci, page: 1, size: 1 }), { retries: 0, timeout: 8000 });
+      const f = t && t._embedded && t._embedded.taxa && t._embedded.taxa[0] && t._embedded.taxa[0].frenchVernacularName;
+      if (f) frAll = splitNames([f]);
+    } catch {}
+  }
+  return (NAMES[k] = { sci, auth: sp.authorship || '', family: sp.family || '', genus: sp.genus || '', fr: frAll[0] || '', frAll, en, taxKey: sp.key });
+}
+Object.values(NAMES).forEach(n => { if (n.frAll && n.frAll.some(x => /[,;]/.test(x))) { n.frAll = splitNames(n.frAll); n.fr = n.frAll[0] || ''; } });
+const dn = k => { const n = NAMES[k]; return n ? (n.fr || n.en || n.sci).split(/[,;]/)[0].trim() : String(k); };
+function nameParts(k) {
+  const n = NAMES[k]; if (!n) return { big: String(k), small: '', bigSci: false };
+  const fr = (n.fr || n.en || '').split(/[,;]/)[0].trim();
+  if (S.nameFirst === 'latin' || !fr) return { big: n.sci, small: fr, bigSci: true };
+  return { big: fr, small: n.sci, bigSci: false };
+}
+const nameHTML = (k, extra = '') => { const p = nameParts(k); return `<span class="fr${p.bigSci ? ' sci' : ''}">${esc(p.big)}</span><span class="sub${p.bigSci ? '' : ' sci'}">${esc(p.small)}${extra}</span>`; };
+async function prepareNames(c, keys) {
+  const todo = keys.filter(k => !NAMES[k]); let done = 0;
+  await pool(todo, 6, async k => {
+    try { await resolveName(k); } catch (e) { if (e.status === 404) c.dead[k] = 1; }
+    busy(`Noms des espèces… ${++done}/${todo.length}`, done / todo.length);
+  });
+  saveNames(); save(c);
+}
+
+/* ---------- médias ---------- */
+const POOLS = {};
+const poolOf = (c, k) => POOLS[c.mode + '|' + k] || (POOLS[c.mode + '|' + k] = { items: [], ids: new Set(), bad: new Set(), fetches: 0, useZone: null, count: 0, exhausted: false, loading: null });
+const shortLic = l => {
+  l = String(l || ''); if (/zero|publicdomain|CC0/i.test(l)) return 'CC0';
+  const m = l.match(/licenses\/([a-z-]+)\/([\d.]+)/i); if (m) return 'CC ' + m[1].toUpperCase() + ' ' + m[2];
+  return l.replace(/_/g, ' ').replace(/^http.*$/, '');
+};
+const okLic = l => /creativecommons\.org|publicdomain|CC0|CC_BY/i.test(l || '');
+const fixImg = u => u.replace(/(\/photos\/\d+\/)(original|large|medium|small|square)\./, '$1medium.');
+
+async function loadMedia(c, k) {
+  const p = poolOf(c, k);
+  if (p.loading) return p.loading;
+  p.loading = (async () => {
+    try {
+      const before = p.items.length;
+      if (c.mode === 'sound' && S.xcKey) await loadXC(c, k, p);
+      if (c.mode === 'sound' && p.items.length < 4) await loadGbifMedia(c, k, p, 'Sound');
+      if (c.mode === 'photo') await loadGbifMedia(c, k, p, 'StillImage');
+      p.fetches++;
+      if (p.items.length === before || p.fetches >= 5) p.exhausted = true;
+    } finally { p.loading = null; }
+  })();
+  return p.loading;
+}
+async function loadGbifMedia(c, k, p, type) {
+  const base = { [RANKP[c.rank || 'species']]: k, mediaType: type, occurrenceStatus: 'PRESENT' };
+  if (p.useZone === null) {
+    p.useZone = false;
+    if (S.zoneFirst) {
+      const z = await jget(GBIF + 'occurrence/search?' + qs({ ...base, ...zoneGeo(c.zone), limit: 0 }));
+      if (z.count >= (type === 'Sound' ? 4 : 12)) { p.useZone = true; p.count = z.count; }
+    }
+    if (!p.useZone) { const g = await jget(GBIF + 'occurrence/search?' + qs({ ...base, limit: 0 })); p.count = g.count; }
+  }
+  if (!p.count) return;
+  const q = p.useZone ? { ...base, ...zoneGeo(c.zone) } : base;
+  const maxOff = Math.max(0, Math.min(p.count - 100, 9000));
+  const off = p.fetches === 0 ? 0 : Math.floor(Math.random() * (maxOff + 1));
+  const j = await jget(GBIF + 'occurrence/search?' + qs({ ...q, limit: 100, offset: p.count > 100 ? off : 0 }));
+  let items = [];
+  (j.results || []).forEach(r => (r.media || []).forEach((m, i) => {
+    const isSnd = m.type === 'Sound' || /^audio/.test(m.format || '');
+    if ((type === 'Sound') !== isSnd || !m.identifier) return;
+    if (type === 'StillImage' && m.type !== 'StillImage') return;
+    if (type === 'StillImage' && (r.datasetKey === XC_DS || /xeno-canto|spectro|\/ffts\/|sono\.|sonogram/i.test(String(m.identifier) + ' ' + (r.datasetName || '') + ' ' + (r.institutionCode || '')))) return;
+    items.push({ id: 'g' + r.key + '_' + i, occ: r.key, url: type === 'StillImage' ? fixImg(m.identifier) : m.identifier,
+      creator: m.creator || m.rightsHolder || r.recordedBy || '', lic: shortLic(m.license || r.license), licRaw: m.license || r.license, src: r.datasetName || '', ds: r.datasetKey || '', dsn: r.datasetName || '', life: r.lifeStage || '', sp: r.species || '' });
+  }));
+  const open = items.filter(i => okLic(i.licRaw));
+  if (open.length >= 5) items = open;
+  items.forEach(i => { if (!p.ids.has(i.id)) { p.ids.add(i.id); p.items.push(i); } });
+}
+async function loadXC(c, k, p) {
+  const n = NAMES[k]; if (!n) return;
+  const [gen, sp] = n.sci.split(' ');
+  const rk = c.rank || 'species';
+  if (!gen || (rk === 'species' && !sp)) return;
+  const base = rk === 'species' ? `gen:${gen} sp:${sp}` : rk === 'genus' ? `gen:${gen}` : `fam:${gen}`;
+  try {
+    const j = await jget('https://xeno-canto.org/api/3/recordings?' + qs({ query: `${base} len:2-20 q:A`, key: S.xcKey }), { retries: 1 });
+    (j.recordings || []).forEach(r => {
+      const id = 'xc' + r.id; if (p.ids.has(id)) return;
+      const [mm, ss] = String(r.length || '0:10').split(':').map(Number);
+      p.ids.add(id);
+      p.items.push({ id, occ: 0, xc: r.id, url: r.file, sono: r.sono && (r.sono.med || r.sono.large), len: mm * 60 + ss, type: r.type,
+        creator: r.rec || '', lic: shortLic(r.lic), src: 'xeno-canto', ds: 'xeno-canto', dsn: 'xeno-canto' });
+    });
+    p.items.sort((a, b) => (a.len || 99) - (b.len || 99));
+  } catch {}
+}
+function markSeen(c, k, id) { const a = c.seen[k] || (c.seen[k] = []); if (!a.includes(id)) a.push(id); if (a.length > 400) a.shift(); }
+async function nextMedia(c, k, avoid = new Set()) {
+  const p = poolOf(c, k); const seen = new Set(c.seen[k] || []);
+  const fresh = () => p.items.filter(i => !seen.has(i.id) && !p.bad.has(i.id) && !BAD.items[i.id]);
+  let cand = fresh();
+  if (cand.length < 3 && !p.exhausted) { try { await loadMedia(c, k); } catch (e) { if (!p.items.length) throw e; } cand = fresh(); }
+  let item = null, reused = false;
+  if (cand.length) {
+    const pref = cand.filter(i => !avoid.has(i.creator || i.id));
+    const arr = pref.length ? pref : cand;
+    if (c.mode === 'sound' && arr[0].len) item = arr.find(i => penalty(i) === 0) || arr[0];
+    else { const w = arr.map(i => 1 / (1 + penalty(i) ** 2)); let r = Math.random() * w.reduce((a, b) => a + b, 0), j = 0; for (; j < w.length - 1; j++) { r -= w[j]; if (r <= 0) break; } item = arr[j]; }
+  } else {
+    const old = (c.seen[k] || []).map(id => p.items.find(i => i.id === id)).filter(i => i && !p.bad.has(i.id) && !BAD.items[i.id]);
+    if (old.length) { item = old[0]; reused = true; c.seen[k] = c.seen[k].filter(x => x !== item.id); }
+  }
+  if (!item) return null;
+  markSeen(c, k, item.id);
+  return Object.assign({}, item, { reused });
+}
+function loadImage(item) {
+  return new Promise((res, rej) => {
+    const img = new Image(); img.className = 'photo'; img.alt = 'Photographie à identifier'; img.decoding = 'async';
+    const to = setTimeout(() => { img.src = ''; rej(new Error('timeout')); }, 12000);
+    img.onload = () => { clearTimeout(to); res(img); };
+    img.onerror = () => { clearTimeout(to); rej(new Error('img')); };
+    img.src = item.url;
+  });
+}
+
+/* ---------- audio, FFT, spectrogramme ---------- */
+let AC = null;
+const actx = () => { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); return AC; };
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) { let bit = n >> 1; for (; j & bit; bit >>= 1) j ^= bit; j ^= bit; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang), h = len >> 1;
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let j = 0; j < h; j++) {
+        const a = i + j, b = a + h, vr = re[b] * cr - im[b] * ci, vi = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - vr; im[b] = im[a] - vi; re[a] += vr; im[a] += vi;
+        const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+      }
+    }
+  }
+}
+const PAL = (() => {
+  const st = [[0, 11, 16, 32], [.35, 59, 31, 107], [.65, 200, 68, 46], [.85, 246, 166, 35], [1, 255, 243, 196]], out = [];
+  for (let i = 0; i < 256; i++) { const t = i / 255; let a = st[0], b = st[1]; for (let j = 1; j < st.length; j++) if (t <= st[j][0]) { a = st[j - 1]; b = st[j]; break; } const u = (t - a[0]) / (b[0] - a[0] || 1); out.push([0, 1, 2].map(x => a[x + 1] + (b[x + 1] - a[x + 1]) * u | 0)); }
+  return out;
+})();
+function parseWav(ab) {
+  const v = new DataView(ab);
+  if (ab.byteLength < 44 || v.getUint32(0) !== 0x52494646 || v.getUint32(8) !== 0x57415645) return null;
+  let p = 12, fmt = null, data = null;
+  while (p + 8 <= ab.byteLength) {
+    const id = v.getUint32(p), sz = v.getUint32(p + 4, true);
+    if (id === 0x666d7420) fmt = { tag: v.getUint16(p + 8, true), ch: v.getUint16(p + 10, true), sr: v.getUint32(p + 12, true), bits: v.getUint16(p + 22, true) };
+    else if (id === 0x64617461) { data = { off: p + 8, len: Math.min(sz, ab.byteLength - p - 8) }; break; }
+    p += 8 + sz + (sz & 1);
+  }
+  if (!fmt || !data || !fmt.ch || fmt.sr < 1000) return null;
+  const bps = fmt.bits / 8, n = Math.floor(data.len / (bps * fmt.ch)), out = new Float32Array(n);
+  const ok = (fmt.tag === 1 && [8, 16, 24, 32].includes(fmt.bits)) || (fmt.tag === 3 && fmt.bits === 32);
+  if (!ok) return null;
+  for (let i = 0; i < n; i++) {
+    const o = data.off + i * bps * fmt.ch;
+    out[i] = fmt.tag === 3 ? v.getFloat32(o, true) : fmt.bits === 16 ? v.getInt16(o, true) / 32768 : fmt.bits === 8 ? (v.getUint8(o) - 128) / 128 : fmt.bits === 24 ? ((v.getUint8(o) | (v.getUint8(o + 1) << 8) | (v.getInt8(o + 2) << 16)) / 8388608) : v.getInt32(o, true) / 2147483648;
+  }
+  return { data: out, sr: fmt.sr };
+}
+async function decodeAny(ab) {
+  const w = parseWav(ab); if (w) return w; // WAV : fréquence d'échantillonnage d'origine conservée (ultrasons)
+  const c = actx(), buf = await new Promise((res, rej) => c.decodeAudioData(ab, res, rej));
+  return { data: buf.getChannelData(0).slice(), sr: buf.sampleRate };
+}
+function cropData(data, sr, maxSec) {
+  if (data.length / sr <= maxSec + 1) return data;
+  const hop = Math.floor(sr * 0.25), e = [];
+  for (let i = 0; i + hop <= data.length; i += hop) { let s = 0; for (let j = 0; j < hop; j += 4) s += data[i + j] * data[i + j]; e.push(s); }
+  const w = Math.round(maxSec / 0.25); let best = 0, bs = -1, cur = e.slice(0, w).reduce((a, b) => a + b, 0);
+  for (let i = 0; i + w <= e.length; i++) { if (i > 0) cur += e[i + w - 1] - e[i - 1]; if (cur > bs) { bs = cur; best = i; } }
+  return data.slice(best * hop, best * hop + w * hop);
+}
+function computeSpec(data, sr) {
+  const k = clamp(Math.round(Math.log2(sr / 48000)), 0, 2), N = 1024 << k, bins = N / 2;
+  if (data.length < N * 2) { const d = new Float32Array(N * 2); d.set(data); data = d; }
+  const hop = Math.max(128, Math.ceil((data.length - N) / 1500)), frames = Math.max(1, Math.floor((data.length - N) / hop));
+  const win = new Float32Array(N).map((_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)));
+  const re = new Float32Array(N), im = new Float32Array(N), db = new Float32Array(frames * bins);
+  for (let f = 0; f < frames; f++) {
+    for (let i = 0; i < N; i++) { re[i] = data[f * hop + i] * win[i]; im[i] = 0; }
+    fft(re, im);
+    for (let b = 0; b < bins; b++) db[f * bins + b] = 10 * Math.log10(re[b] * re[b] + im[b] * im[b] + 1e-10);
+  }
+  const col = new Float32Array(frames);
+  for (let b = 0; b < bins; b++) {
+    for (let f = 0; f < frames; f++) col[f] = db[f * bins + b];
+    const fl = Float32Array.from(col).sort()[Math.floor(frames * 0.2)];
+    for (let f = 0; f < frames; f++) db[f * bins + b] -= fl;
+  }
+  const sample = []; for (let i = 0; i < db.length; i += 7) sample.push(db[i]); sample.sort((a, b) => a - b);
+  return { db, frames, bins, N, sr, hi: Math.max(10, sample[Math.floor(sample.length * 0.995)] || 30) };
+}
+function drawSpec(sp, cv, fmin, fmax) {
+  const df = sp.sr / sp.N, b0 = clamp(Math.floor(fmin / df), 0, sp.bins - 2), b1 = clamp(Math.ceil(fmax / df), b0 + 2, sp.bins), H = b1 - b0;
+  cv.width = sp.frames; cv.height = H;
+  const g = cv.getContext('2d'), img = g.createImageData(sp.frames, H);
+  for (let f = 0; f < sp.frames; f++) for (let b = b0; b < b1; b++) {
+    const v = clamp(sp.db[f * sp.bins + b] / sp.hi, 0, 1), c = PAL[Math.round(v * 255)], o = ((b1 - 1 - b) * sp.frames + f) * 4;
+    img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  return { f0: b0 * df, f1: b1 * df };
+}
+async function prepareSound(item) {
+  try {
+    const r = await fetch(item.url);
+    if (!r.ok) throw new Error('http');
+    if ((+r.headers.get('content-length') || 0) > 12e6) throw new Error('big');
+    const ab = await r.arrayBuffer();
+    if (ab.byteLength > 12e6) throw new Error('big');
+    const d = await decodeAny(ab), data = cropData(d.data, d.sr, 8);
+    return { data, sr: d.sr, dur: data.length / d.sr, sono: item.sono, sp: computeSpec(data, d.sr) };
+  } catch (e) {
+    if (e.message === 'big' || e.message === 'http') throw e;
+    // CORS refusé : lecture simple via <audio>, spectrogramme pré-calculé si disponible
+    const a = new Audio(); a.preload = 'auto'; a.src = item.url;
+    await new Promise((res, rej) => { const to = setTimeout(() => rej(new Error('timeout')), 12000); a.oncanplay = () => { clearTimeout(to); res(); }; a.onerror = () => { clearTimeout(to); rej(new Error('audio')); }; });
+    return { el: a, dur: a.duration || item.len || 8, sono: item.sono };
+  }
+}
+let playToken = 0;
+function stopSound() { playToken++; if (stopSound.cur) { try { stopSound.cur(); } catch {} stopSound.cur = null; } }
+function soundPlan(sd) {
+  const tx = S.timeExp ? 10 : 1, sr = sd.sr, n = sd.data.length;
+  let data = sd.data, rate = sr, pr = 1;
+  if (tx > 1 && sr / tx >= 8000 && sr / tx <= 96000) rate = sr / tx; // vraie expansion de temps : le signal est relu 10 fois plus lentement
+  else {
+    if (sr > 96000) { const f = Math.ceil(sr / 96000), out = new Float32Array(Math.floor(n / f)); for (let i = 0; i < out.length; i++) { let q = 0; for (let j = 0; j < f; j++) q += data[i * f + j]; out[i] = q / f; } data = out; rate = sr / f; }
+    if (tx > 1) pr = 1 / tx;
+  }
+  return { data, rate, pr, dur: n / sr * tx };
+}
+function playSound(sd, onProg) {
+  stopSound(); const tok = playToken, tx = S.timeExp ? 10 : 1;
+  if (sd.data) {
+    try {
+      const c = actx(), plan = soundPlan(sd), ab = c.createBuffer(1, plan.data.length, plan.rate); ab.copyToChannel(plan.data, 0);
+      const src = c.createBufferSource(); src.buffer = ab; src.playbackRate.value = plan.pr; src.connect(c.destination); const t0 = c.currentTime; src.start();
+      stopSound.cur = () => { try { src.stop(); } catch {} };
+      const tick = () => { if (tok !== playToken) return; const p = (c.currentTime - t0) / plan.dur; onProg(clamp(p, 0, 1)); if (p < 1) requestAnimationFrame(tick); }; tick();
+    } catch (e) { console.error(e); toast('Lecture impossible avec ces réglages.'); }
+  } else if (sd.el) {
+    sd.el.preservesPitch = false; sd.el.webkitPreservesPitch = false; sd.el.playbackRate = 1 / tx;
+    sd.el.currentTime = 0; sd.el.play().catch(() => toast('Touchez « Écouter » pour lancer le son'));
+    stopSound.cur = () => sd.el.pause();
+    const tick = () => { if (tok !== playToken) return; const p = sd.el.currentTime / (sd.el.duration || sd.dur); onProg(clamp(p, 0, 1)); if (!sd.el.ended) requestAnimationFrame(tick); }; tick();
+  }
+}
+function attrHTML(item, showLink) {
+  const parts = [];
+  if (item.creator) parts.push('© ' + esc(item.creator));
+  if (item.lic) parts.push(esc(item.lic));
+  if (item.type) parts.push(esc(item.type));
+  if (item.life) parts.push('stade : ' + esc(lifeFr(item.life)));
+  const dsName = item.dsn || item.src || (item.ds && item.ds !== 'xeno-canto' ? 'dataset ' + String(item.ds).slice(0, 8) : '');
+  if (dsName) parts.push('dataset : ' + (item.ds && item.ds !== 'xeno-canto' ? `<a href="https://www.gbif.org/dataset/${esc(item.ds)}" target="_blank" rel="noopener">${esc(dsName)}</a>` : esc(dsName)));
+  if (showLink) parts.push(item.occ ? `<a href="https://www.gbif.org/occurrence/${item.occ}" target="_blank" rel="noopener">observation GBIF ${item.occ}</a>` : item.xc ? `<a href="https://xeno-canto.org/${item.xc}" target="_blank" rel="noopener">XC${item.xc}</a>` : '');
+  return parts.filter(Boolean).join(' · ');
+}
+function openZoom(src) {
+  const o = document.createElement('div'); o.className = 'overlay zoom'; o.setAttribute('role', 'dialog'); o.setAttribute('aria-label', 'Image agrandie');
+  o.innerHTML = '<img alt="Image agrandie" draggable="false"><div class="zbar"><button class="btn sm" data-z="out" type="button" aria-label="Réduire">−</button><button class="btn sm" data-z="in" type="button" aria-label="Agrandir">+</button><button class="btn sm pri" data-z="x" type="button">Fermer</button></div>';
+  const img = $('img', o); let sc = 1, x = 0, y = 0, d0 = 0, s0 = 1; const pts = new Map();
+  const apply = () => { img.style.transform = `translate(${x}px,${y}px) scale(${sc})`; };
+  const setS = n => { sc = clamp(n, 1, 8); if (sc === 1) x = y = 0; apply(); };
+  img.onerror = () => { if (img.getAttribute('src') !== src) img.src = src; };
+  img.src = src.replace(/\/medium\./, '/large.');
+  o.addEventListener('pointerdown', e => { if (e.target.closest('.zbar')) return; pts.set(e.pointerId, [e.clientX, e.clientY]); try { o.setPointerCapture(e.pointerId); } catch {} if (pts.size === 2) { const [a, b] = [...pts.values()]; d0 = Math.hypot(a[0] - b[0], a[1] - b[1]); s0 = sc; } });
+  o.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return; const prev = pts.get(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pts.size === 2) { const [a, b] = [...pts.values()]; setS(s0 * Math.hypot(a[0] - b[0], a[1] - b[1]) / (d0 || 1)); }
+    else if (sc > 1) { x += e.clientX - prev[0]; y += e.clientY - prev[1]; apply(); }
+  });
+  const up = e => pts.delete(e.pointerId); o.addEventListener('pointerup', up); o.addEventListener('pointercancel', up);
+  o.addEventListener('wheel', e => { e.preventDefault(); setS(sc * (e.deltaY < 0 ? 1.2 : 1 / 1.2)); }, { passive: false });
+  o.addEventListener('dblclick', () => setS(sc > 1 ? 1 : 3));
+  o.addEventListener('click', e => { const b = e.target.closest('[data-z]'); if (!b) { if (e.target === o && sc === 1) o.remove(); return; } if (b.dataset.z === 'x') o.remove(); else setS(sc * (b.dataset.z === 'in' ? 1.5 : 1 / 1.5)); });
+  const onKey = e => { if (e.key === 'Escape') { o.remove(); document.removeEventListener('keydown', onKey); } }; document.addEventListener('keydown', onKey);
+  layer.append(o);
+}
+function niceTicks(f0, f1) {
+  const R = (f1 - f0) / 1000, steps = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50], st = steps.find(s => R / s <= 6) || 50, out = [];
+  for (let f = Math.ceil(f0 / 1000 / st) * st; f <= f1 / 1000 + 1e-9; f += st) out.push(+f.toFixed(2));
+  return out;
+}
+function buildMedia(m, mode, item, opts = {}) {
+  const box = document.createElement('div'); box.className = 'media';
+  if (mode === 'photo') {
+    m.onclick = () => openZoom(item.url); m.title = 'Toucher pour agrandir'; m.style.cursor = 'zoom-in'; box.append(m);
+    const zb = document.createElement('button'); zb.type = 'button'; zb.className = 'btn ghost sm zbtn'; zb.textContent = 'Agrandir'; zb.onclick = () => openZoom(item.url); box.append(zb);
+  } else {
+    const sp = m.sp;
+    box.innerHTML = `<div class="spec">${sp ? '<canvas></canvas>' : m.sono ? `<img alt="Spectrogramme" src="${esc(m.sono)}">` : '<div class="nospec">Spectrogramme indisponible : le serveur de cet enregistrement n’autorise pas son calcul. Écoutez le son.</div>'}<i class="ph"></i></div><div class="nmslot"></div>
+      <button class="btn sm listen" type="button" title="Écouter (Espace ; Alt+L si le curseur est dans la réponse)">▶ Écouter</button>
+      <div class="row specctl">${sp ? `<label>Fréq. min <input type="number" class="fmin" min="0" step="0.5" value="${S.specFmin || 0}"> kHz</label><label>max <input type="number" class="fmax" min="1" step="0.5" value="${S.specFmax || ''}" placeholder="${(sp.sr / 2000).toFixed(1)}"> kHz</label>` : ''}<label><input type="checkbox" class="tx" ${S.timeExp ? 'checked' : ''}> Expansion de temps ×10</label>${sp ? `<span class="hint mono">éch. ${(sp.sr / 1000).toFixed(1)} kHz</span>` : ''}</div>
+`;
+    const ph = $('.ph', box);
+    if (sp) {
+      const cv = $('canvas', box), spec = $('.spec', box);
+      const redraw = () => {
+        const nyq = sp.sr / 2, fmin = clamp((S.specFmin || 0) * 1000, 0, nyq - 500), fmax = S.specFmax > 0 ? clamp(S.specFmax * 1000, fmin + 500, nyq) : nyq;
+        const r = drawSpec(sp, cv, fmin, fmax);
+        spec.querySelectorAll('.ax').forEach(n => n.remove());
+        niceTicks(r.f0, r.f1).forEach(f => { const s = document.createElement('span'); s.className = 'ax'; s.style.bottom = ((f * 1000 - r.f0) / (r.f1 - r.f0) * 100) + '%'; s.textContent = f + ' kHz'; spec.append(s); });
+      };
+      redraw();
+      $('.fmin', box).onchange = e => { S.specFmin = Math.max(0, +e.target.value || 0); saveSettings(); redraw(); };
+      $('.fmax', box).onchange = e => { S.specFmax = Math.max(0, +e.target.value || 0); saveSettings(); redraw(); };
+    }
+    $('.tx', box).onchange = e => { S.timeExp = e.target.checked; saveSettings(); };
+    const play = () => playSound(m, p => { ph.style.left = (p * 100) + '%'; });
+    box._play = play; $('.listen', box).onclick = () => play();
+  }
+  const a = document.createElement('div'); a.className = 'attr';
+  const setAttr = show => { a.innerHTML = attrHTML(item, show); };
+  setAttr(!opts.lock); box._reveal = () => setAttr(true); box.append(a);
+  return box;
+}
+async function loadAsset(c, item) { return c.mode === 'photo' ? loadImage(item) : prepareSound(item); }
+
+/* ---------- appariement flou des réponses ---------- */
+const norm = s => String(s || '').toLowerCase().replace(/œ/g, 'oe').replace(/æ/g, 'ae').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+function lev(a, b) {
+  if (a === b) return 0; if (!a.length) return b.length; if (!b.length) return a.length;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+const tol = n => n <= 4 ? 0 : n <= 7 ? 1 : n <= 12 ? 2 : n <= 18 ? 3 : 4;
+const sortTok = s => s.split(' ').sort().join(' ');
+function acceptedNames(k) { const n = NAMES[k]; if (!n) return []; return [...(n.frAll || []), n.sci, n.fr ? '' : n.en].filter(Boolean).map(norm); }
+function distTo(ans, k) {
+  const a = norm(ans), a2 = a.replace(/ /g, ''); let best = 99, len = 0;
+  acceptedNames(k).forEach(nm => {
+    const d = Math.min(lev(a, nm), lev(a2, nm.replace(/ /g, '')), lev(sortTok(a), sortTok(nm)));
+    if (d < best) { best = d; len = nm.replace(/ /g, '').length; }
+  });
+  return { d: best, t: tol(len) };
+}
+function evalAnswers(texts, k, keys) {
+  let res = { ok: false, typo: false, conf: 0 };
+  for (const t of texts) {
+    if (!norm(t)) continue;
+    const me = distTo(t, k);
+    let rival = null;
+    keys.forEach(o => { if (o === k) return; const x = distTo(t, o); if (x.d <= x.t && (!rival || x.d < rival.d)) rival = { ...x, k: o }; });
+    if (me.d <= me.t && (!rival || me.d <= rival.d)) return { ok: true, typo: me.d > 0, conf: 0 };
+    if (rival && !res.conf) res.conf = rival.k;
+  }
+  return res;
+}
+
+/* ---------- parcours : niveaux, maîtrise, badges ---------- */
+const levelsOf = c => {
+  const N = c.species.length, out = []; let prev = 0;
+  LEVEL_DEFS.forEach((d, i) => { const n = clamp(Math.max(Math.ceil(N * d.pct / 100), 3), 1, N); if (n > prev) { out.push({ ...d, i, n }); prev = n; } });
+  return out;
+};
+const levelKeys = (c, li = c.levelIdx) => c.species.slice(0, levelsOf(c)[li].n).map(s => s.k).filter(k => !c.dead[k] && NAMES[k]);
+function firstTrials(c, li) { return c.trials.filter(t => !t[5] && (li === undefined || t[1] === li)); }
+function mastery(c) {
+  const raw = levelKeysRaw(c), n = raw.length, W = S.window > 0 ? S.window : clamp(Math.round(n * 1.5), 20, 60);
+  const last = firstTrials(c, c.levelIdx).slice(-W), ok = last.reduce((a, t) => a + t[3], 0);
+  const acc = last.length ? ok / last.length : 0, trained = raw.filter(k => c.trained[k]).length;
+  const untrained = Math.max(0, Math.ceil(n * clamp(S.coverage, 1, 100) / 100) - trained);
+  return { W, n: last.length, acc, untrained, total: n, trained, ready: last.length >= W && Math.round(acc * 1000) / 10 >= S.threshold && untrained === 0 };
+}
+const trainedKeys = c => levelKeysRaw(c).filter(k => c.trained[k] && NAMES[k]);
+const zoneName = c => c.zone.kind && c.zone.kind !== 'circle' ? c.zone.label : `${c.zone.label || (c.zone.lat.toFixed(2) + ', ' + c.zone.lon.toFixed(2))} · ${c.zone.r} km`;
+const courseTitle = c => `${c.taxon.label} · ${zoneName(c)}${c.rank && c.rank !== 'species' ? ' · ' + U(c)[1] : ''}${c.mode === 'sound' ? ' · sons' : ''}`;
+const save = c => { COURSES[c.id] = c; saveCourses(); };
+const BADGE_DEFS = (() => {
+  const d = [];
+  LEVEL_DEFS.forEach((l, i) => d.push({ id: 'L' + i, tier: i, label: ['I', 'II', 'III', 'IV', 'V'][i], title: 'Niveau ' + l.name, desc: `${l.pct} % des espèces les plus abondantes maîtrisées` }));
+  [[50, 0], [250, 1], [1000, 3]].forEach(([n, t]) => d.push({ id: 'T' + n, tier: t, label: String(n), title: n + ' identifications', desc: `${n} réponses données dans ce parcours` }));
+  [[10, 1], [25, 2]].forEach(([n, t]) => d.push({ id: 'S' + n, tier: t, label: n + '×', title: `Série de ${n}`, desc: `${n} bonnes réponses d’affilée` }));
+  d.push({ id: 'P20', tier: 2, label: '100%', title: 'Session parfaite', desc: 'Une session d’au moins 20 réponses sans erreur' });
+  return d;
+})();
+function streak(c) { let s = 0; const t = firstTrials(c); for (let i = t.length - 1; i >= 0 && t[i][3]; i--) s++; return s; }
+function maxStreak(c) { let m = 0, s = 0; firstTrials(c).forEach(t => { s = t[3] ? s + 1 : 0; m = Math.max(m, s); }); return m; }
+function evalBadges(c, X) {
+  const got = [], give = id => { if (!c.badges[id]) { c.badges[id] = Date.now(); got.push(BADGE_DEFS.find(b => b.id === id)); } };
+  const n = firstTrials(c).length;
+  [50, 250, 1000].forEach(x => { if (n >= x) give('T' + x); });
+  const ms = maxStreak(c); [10, 25].forEach(x => { if (ms >= x) give('S' + x); });
+  if (X && X.sessN >= 20 && X.sessOK === X.sessN) give('P20');
+  return got;
+}
+const medal = (d, on) => `<svg class="medal ${on ? '' : 'off'}" viewBox="0 0 64 64" role="img" aria-label="${esc(d.title)}"><circle cx="32" cy="32" r="29" fill="${on ? TIER_COLORS[d.tier] : 'var(--chip)'}"/><circle cx="32" cy="32" r="23" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="2"/><text x="32" y="${d.label.length > 3 ? 37 : 38}" text-anchor="middle" font-size="${d.label.length > 3 ? 13 : 19}" font-weight="800" fill="${on ? '#10201a' : 'var(--muted)'}" font-family="Bricolage Grotesque,system-ui,sans-serif">${esc(d.label)}</text></svg>`;
+
+/* ---------- UI : overlay, toast, modale ---------- */
+const layer = $('#layer');
+function busy(msg, pct) {
+  let o = $('#busy');
+  if (msg === false) { if (o) o.remove(); return; }
+  if (!o) { o = document.createElement('div'); o.id = 'busy'; o.className = 'overlay'; o.innerHTML = '<div class="box"><div class="spin"></div><p id="busyMsg" style="text-align:center"></p><div class="bar"><i id="busyBar" style="width:0"></i></div></div>'; layer.append(o); }
+  $('#busyMsg').textContent = msg; $('#busyBar').style.width = pct == null ? '100%' : Math.round(pct * 100) + '%';
+}
+let toastT;
+function toast(msg) { let t = $('.toast'); if (t) t.remove(); t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg; document.body.append(t); clearTimeout(toastT); toastT = setTimeout(() => t.remove(), 3500); }
+function modal(html, onClick) {
+  const o = document.createElement('div'); o.className = 'overlay'; o.innerHTML = `<div class="box" role="dialog" aria-modal="true">${html}</div>`;
+  layer.append(o);
+  o.addEventListener('click', e => { const b = e.target.closest('[data-m]'); if (b) { o.remove(); onClick && onClick(b.dataset.m); } });
+  const f = $('[data-m]', o); if (f) f.focus();
+  return o;
+}
+
+/* ---------- état de navigation ---------- */
+const app = $('#app'), tabs = $('#tabs');
+let V = { view: 'home' }, NEWC = null, PREVIEW = null, map = null, mapMarker = null, mapCircle = null;
+const ICONS = {
+  home: '<path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  prog: '<path d="M3 20h18M5 16l4-5 4 3 6-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  badge: '<circle cx="12" cy="9" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.5 14L7 22l5-3 5 3-1.500-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  book: '<path d="M4 4h7a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4zM20 4h-7v16a2 2 0 0 1 2-2h5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  gear: '<circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>',
+  mic: '<rect x="9" y="3" width="6" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+};
+const ico = (n, s = 22) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true">${ICONS[n]}</svg>`;
+function go(view, p = {}) {
+  stopSound(); if (V.view === 'test' && view !== 'test') stopMic(true); if (V.view === 'new' && map) { try { map.remove(); } catch {} map = null; }
+  V = { view, ...p }; render(); window.scrollTo(0, 0);
+}
+function renderTabs() {
+  const focus = V.view === 'train' || V.view === 'test' || V.view === 'compare';
+  tabs.style.display = focus ? 'none' : '';
+  const T = [['home', 'Parcours', 'home'], ['progress', 'Progrès', 'prog'], ['badges', 'Badges', 'badge'], ['method', 'Méthode', 'book'], ['report', 'Signaler', 'flag'], ['settings', 'Réglages', 'gear']];
+  const cur = ['new', 'preview', 'course', 'compare', 'tree'].includes(V.view) ? 'home' : V.view;
+  tabs.innerHTML = '<div>' + T.map(([v, l, i]) => `<button data-act="nav" data-v="${v}" ${cur === v ? 'aria-current="page"' : ''}>${ico(i)}<span>${l}</span></button>`).join('') + '</div>';
+  document.body.style.paddingBottom = focus ? 'env(safe-area-inset-bottom,0px)' : '';
+}
+function render() { renderTabs(); ({ home: viewHome, new: viewNew, preview: viewPreview, compare: viewCompare, course: viewCourse, train: viewTrain, test: viewTest, progress: viewProgress, badges: viewBadges, method: viewMethod, settings: viewSettings, report: viewReport, tree: viewTree })[V.view](); }
+
+/* ---------- accueil ---------- */
+function viewHome() {
+  const cs = Object.values(COURSES).sort((a, b) => (b.last || 0) - (a.last || 0));
+  app.innerHTML = `<header class="col"><h1>FieldNaturalistTrainer</h1><p class="hint">Apprenez à reconnaître d’un coup d’œil les espèces de votre zone avant d’aller sur le terrain. Données de biodiversité : GBIF.</p></header>
+  <button class="btn pri block" data-act="newCourse">Nouveau parcours</button>
+  ${cs.length ? cs.map(c => { const L = levelsOf(c)[c.levelIdx], m = mastery(c), all = firstTrials(c), acc = all.length ? Math.round(all.slice(-50).reduce((a, t) => a + t[3], 0) / all.slice(-50).length * 100) : null;
+    return `<button class="card lvl" style="flex-direction:column;align-items:stretch;gap:8px" data-act="openCourse" data-id="${esc(c.id)}">
+      <div class="row sp"><strong class="grow">${esc(courseTitle(c))}</strong><span class="chip ${c.completed ? 'ok' : ''}">${c.completed ? 'Terminé' : 'Niveau ' + esc(L.name)}</span></div>
+      <div class="bar"><i style="width:${Math.round(clamp(m.n / m.W, 0, 1) * 100)}%"></i></div>
+      <div class="hint">${c.species.length} ${U(c)[1]} · ${all.length} réponses${acc !== null ? ' · ' + acc + ' % sur les 50 dernières' : ''}</div></button>`; }).join('')
+  : `<div class="card col"><h2>Comment ça marche</h2>
+      <p><b>1.</b> Posez un point sur la carte et choisissez un rayon.</p>
+      <p><b>2.</b> Choisissez un groupe : oiseaux, papillons, amphibiens…</p>
+      <p><b>3.</b> L’appli liste les espèces observées localement, des plus communes aux plus rares, puis vous entraîne par paliers : 5 %, 10 %, 25 %, 50 %, 100 %.</p>
+      <p class="hint">Chaque palier alterne apprentissage (nom + image) et test sur des images jamais vues.</p></div>`}`;
+}
+
+/* ---------- nouveau parcours ---------- */
+function newDefaults() { return { lat: 48.4, lon: 2.7, r: 25, taxa: [{ ...PRESETS[0] }], mode: 'photo', rank: 'species', q: '', sug: [] }; }
+const taxaLabel = ts => ts.length === 1 ? ts[0].label : ts.length <= 3 ? ts.map(t => t.label).join(' + ') : ts.slice(0, 2).map(t => t.label).join(' + ') + ` + ${ts.length - 2} autres`;
+const chipsHTML = N => N.taxa.length ? N.taxa.map(t => `<span class="chip">${esc(t.label)}${t.rank ? ` <span class="hint">${esc(RANK_FR[t.rank] || '')}</span>` : ''} <button class="x" type="button" data-act="rmTaxon" data-k="${t.key}" aria-label="Retirer ${esc(t.label)}">×</button></span>`).join('') : '<span class="hint">Aucun groupe sélectionné.</span>';
+const zoneDesc = (N, P) => (N.zk || 'circle') === 'circle' ? `${P.label || N.lat.toFixed(2) + ', ' + N.lon.toFixed(2)} · rayon ${N.r} km` : N.zlabel;
+function viewNew() {
+  NEWC = NEWC || newDefaults();
+  const N = NEWC, zk = N.zk || 'circle';
+  if (map) { try { map.remove(); } catch {} map = null; }
+  const zoneBody = zk === 'circle' ? `<div id="map" aria-label="Carte : touchez pour placer le centre"></div>
+    <div class="row"><input type="text" id="place" class="grow" placeholder="Rechercher un lieu (ex. Forêt de Fontainebleau)" aria-label="Rechercher un lieu"><button class="btn sm" data-act="searchPlace">Chercher</button></div>
+    <div class="row"><label class="f grow">Latitude<input type="number" step="0.0001" id="lat" value="${N.lat}"></label><label class="f grow">Longitude<input type="number" step="0.0001" id="lon" value="${N.lon}"></label></div>
+    <label class="f">Rayon : <span id="rv" class="mono">${N.r} km</span><input type="range" id="rad" min="1" max="300" value="${N.r}"></label>
+    <p class="hint">Plus le rayon est grand, plus la liste d'espèces est longue. 10 à 50 km convient à un site de sortie.</p>`
+    : zk === 'eco' ? `<select id="bsel" aria-label="Biome"><option value="">Tous les biomes</option></select>
+    <input type="text" id="efil" placeholder="Filtrer les écorégions (nom)" aria-label="Filtrer les écorégions">
+    <select id="zsel" aria-label="Écorégion"><option>Chargement…</option></select>
+    <p class="hint" id="zhint">Écorégions terrestres (RESOLVE 2017, 846 régions). Le biome sert de filtre pour trouver l'écorégion. Le contour est très simplifié pour la requête GBIF : les limites sont approximatives.</p>`
+    : `<select id="zsel" aria-label="Choisir la zone"><option>Chargement…</option></select>
+    <p class="hint" id="zhint">${zk === 'country' ? "Toutes les observations GBIF enregistrées pour ce pays." : "Le contour officiel est simplifié à environ 1 km pour la requête GBIF."}</p>`;
+  app.innerHTML = `<div class="row sp"><h2>Nouveau parcours</h2><button class="btn ghost sm" data-act="nav" data-v="home">Annuler</button></div>
+  <section class="card col"><h3>1. Zone d'étude</h3>
+    <div class="seg" role="group" aria-label="Type de zone">${[['circle', 'Cercle'], ['country', 'Pays'], ['region', 'Région'], ['eco', 'Écorégion']].map(([z, l]) => `<button data-act="setZone" data-z="${z}" aria-pressed="${zk === z}">${l}</button>`).join('')}</div>
+    ${zoneBody}
+    <button class="btn sm" data-act="cover" style="align-self:flex-start">Biomes et écorégions de la zone</button><div id="cover" class="col">${N.cover ? coverHTML(N.cover) : ''}</div></section>
+  <section class="card col"><h3>2. Groupes taxonomiques</h3>
+    <div class="row" id="chips">${chipsHTML(N)}</div>
+    <select id="preset" aria-label="Ajouter un groupe courant"><option value="">Ajouter un groupe courant…</option>${PRESETS.map(p => `<option value="${p.key}">${esc(p.label)}</option>`).join('')}</select>
+    <input type="text" id="tq" placeholder="Chercher un groupe : famille, ordre, genre (ex. Mésanges, Paridae)" aria-label="Rechercher un groupe" value="${esc(N.q)}">
+    <div id="sug"></div>
+    <button class="btn block" data-act="openTree">Parcourir l'arbre taxonomique</button>
+    <p class="hint">Vous pouvez cumuler plusieurs groupes (par exemple 5 familles d'hyménoptères).</p></section>
+  <section class="card col"><h3>3. Niveau de précision</h3>
+    <div class="seg" role="group" aria-label="Unité d'apprentissage"><button data-act="setRank" data-r="species" aria-pressed="${N.rank === 'species'}">Espèces</button><button data-act="setRank" data-r="genus" aria-pressed="${N.rank === 'genus'}">Genres</button><button data-act="setRank" data-r="family" aria-pressed="${N.rank === 'family'}">Familles</button></div>
+    <p class="hint">Genres et familles : bon point de départ pour un groupe très riche. Les images mélangent alors plusieurs espèces du même genre ou de la même famille, ce qui entraîne le coup d'œil sur les traits communs. Le nom français n'existe pas toujours à ce niveau : le nom scientifique est alors à saisir.</p></section>
+  <section class="card col"><h3>4. Type d'exercice</h3>
+    <div class="seg" role="group" aria-label="Type d'exercice"><button data-act="setMode" data-m="photo" aria-pressed="${N.mode === 'photo'}">Photos</button><button data-act="setMode" data-m="sound" aria-pressed="${N.mode === 'sound'}">Sons + spectrogramme</button></div>
+    <p class="hint" id="modeHint"></p></section>
+  <button class="btn pri block" data-act="findSpecies">Chercher les espèces dans GBIF</button>`;
+  updateModeHint();
+  if (zk === 'circle') {
+    initMap();
+    $('#rad').oninput = e => { N.r = +e.target.value; $('#rv').textContent = N.r + ' km'; if (mapCircle) mapCircle.setRadius(N.r * 1000); N.cover = null; };
+    $('#rad').onchange = () => { if (map && mapCircle) map.fitBounds(mapCircle.getBounds()); };
+    const ll = () => { N.lat = clamp(+$('#lat').value || 0, -85, 85); N.lon = clamp(+$('#lon').value || 0, -180, 180); N.cover = null; moveMap(true); };
+    $('#lat').onchange = ll; $('#lon').onchange = ll;
+    $('#place').onkeydown = e => { if (e.key === 'Enter') ACT.searchPlace(); };
+  } else loadZoneList(zk);
+  $('#preset').onchange = e => { const p = PRESETS.find(x => x.key == e.target.value); if (p && !N.taxa.some(t => t.key === p.key)) { N.taxa.push({ ...p }); $('#chips').innerHTML = chipsHTML(N); updateModeHint(); } e.target.value = ''; };
+  let dt; $('#tq').oninput = e => { N.q = e.target.value; clearTimeout(dt); dt = setTimeout(searchTaxon, 350); };
+  if (N.q) searchTaxon();
+}
+const EXCL = new Set(['EU', 'UN', 'EZ', 'QO', 'ZZ', 'AC', 'CP', 'DG', 'EA', 'IC', 'TA', 'AN', 'HV', 'DY', 'BU', 'ZR', 'CS', 'YU', 'DD', 'FX', 'UK', 'NH', 'RH', 'SU', 'TP', 'VD', 'YD']);
+function countryList() {
+  const dnm = new Intl.DisplayNames(['fr'], { type: 'region' }), out = [];
+  for (let a = 65; a <= 90; a++) for (let b = 65; b <= 90; b++) { const code = String.fromCharCode(a, b); if (EXCL.has(code)) continue; let n; try { n = dnm.of(code); } catch { continue; } if (n && n !== code && !out.some(o => o[1] === n)) out.push([code, n]); }
+  return out.sort((x, y) => x[1].localeCompare(y[1], 'fr'));
+}
+const ECO = 'https://services.arcgis.com/P3ePLMYs2RVChkJx/ArcGIS/rest/services/Resolve_Ecoregions/FeatureServer/0/query';
+let ECOLIST = LS.get('fnt.ecolist', null);
+async function loadEcoList() {
+  if (ECOLIST && ECOLIST.length) return ECOLIST;
+  const j = await jget(ECO + '?' + qs({ f: 'json', where: '1=1', outFields: 'ECO_ID,ECO_NAME,BIOME_NUM,BIOME_NAME', returnGeometry: 'false', resultRecordCount: 2000, orderByFields: 'ECO_NAME' }), { timeout: 30000 });
+  const seen = new Set(); ECOLIST = [];
+  (j.features || []).forEach(f => { const a = f.attributes; if (a && a.ECO_NAME && a.ECO_NAME !== 'Rock and Ice' && a.BIOME_NUM < 90 && !seen.has(a.ECO_ID)) { seen.add(a.ECO_ID); ECOLIST.push({ id: a.ECO_ID, n: a.ECO_NAME, b: a.BIOME_NUM, bn: a.BIOME_NAME }); } });
+  if (!ECOLIST.length) throw new Error('liste vide');
+  LS.set('fnt.ecolist', ECOLIST); return ECOLIST;
+}
+async function loadZoneList(zk) {
+  const sel = $('#zsel'), N = NEWC;
+  try {
+    if (zk === 'eco') {
+      const list = await loadEcoList(), bsel = $('#bsel'), efil = $('#efil');
+      const biomes = [...new Map(list.map(e => [e.b, e.bn])).entries()].sort((a, b) => a[0] - b[0]);
+      bsel.innerHTML = '<option value="">Tous les biomes</option>' + biomes.map(([b, n]) => `<option value="${b}" ${N.zbiome == b ? 'selected' : ''}>${esc(BIOMES_FR[b] || n)}</option>`).join('');
+      const fill = () => { N.zbiome = bsel.value; const q = norm(efil.value); const l = list.filter(e => (!bsel.value || e.b == bsel.value) && (!q || norm(e.n).includes(q))).slice(0, 400); sel.innerHTML = '<option value="">Choisir une écorégion…</option>' + l.map(e => `<option value="${e.id}" data-n="${esc(e.n)}" ${String(N.zcode) === String(e.id) ? 'selected' : ''}>${esc(e.n)}</option>`).join(''); };
+      bsel.onchange = fill; efil.oninput = fill; fill();
+      sel.onchange = () => pickZone(zk, sel.value, sel.selectedOptions[0] ? sel.selectedOptions[0].dataset.n || '' : '');
+      return;
+    }
+    let list;
+    if (zk === 'country') list = countryList();
+    else { const j = await jget('https://geo.api.gouv.fr/regions?fields=nom,code', { retries: 1 }); list = j.map(x => [x.code, x.nom]).sort((a, b) => a[1].localeCompare(b[1], 'fr')); }
+    sel.innerHTML = '<option value="">Choisir…</option>' + list.map(([c, n]) => `<option value="${esc(c)}" data-n="${esc(n)}" ${N.zcode === c ? 'selected' : ''}>${esc(n)}</option>`).join('');
+    sel.onchange = () => pickZone(zk, sel.value, sel.selectedOptions[0].dataset.n || '');
+  } catch (e) { console.error('liste zones', e); sel.innerHTML = '<option value="">Liste indisponible (réseau ?)</option>'; }
+}
+async function pickZone(zk, code, label) {
+  const N = NEWC; N.zcode = code; N.zlabel = label; N.country = N.wkt = undefined; N.cover = null; $('#cover') && ($('#cover').innerHTML = '');
+  if (!code) return;
+  if (zk === 'country') { N.country = code; return; }
+  busy('Chargement du contour…');
+  try { N.wkt = zk === 'eco' ? geomToWKT(await ecoGeometry(code), 300) : geomToWKT(await fetchContour(zk, code, label)); busy(false); }
+  catch (e) { console.error('contour', e); busy(false); N.zcode = ''; $('#zsel').value = ''; toast('Contour indisponible. Utilisez un cercle sur la carte.'); }
+}
+async function ecoGeometry(id) {
+  const j = await jget(ECO + '?' + qs({ f: 'geojson', where: 'ECO_ID=' + id, outFields: 'ECO_NAME', returnGeometry: 'true', outSR: 4326, maxAllowableOffset: 0.02, geometryPrecision: 3 }), { timeout: 60000 });
+  const polys = [];
+  (j.features || []).forEach(f => { const g = f.geometry; if (!g) return; if (g.type === 'Polygon') polys.push(g.coordinates); else if (g.type === 'MultiPolygon') g.coordinates.forEach(p => polys.push(p)); });
+  if (!polys.length) throw new Error('géométrie vide');
+  return { type: 'MultiPolygon', coordinates: polys };
+}
+async function fetchContour(zk, code, label) {
+  const base = 'https://geo.api.gouv.fr/' + (zk === 'dept' ? 'departements' : 'regions') + '/' + code;
+  const pick = j => j && (j.contour || j.geometry || (j.features && j.features[0] && j.features[0].geometry));
+  for (const u of [base + '?fields=nom,code,contour', base + '?format=geojson&geometry=contour', base + '?fields=contour&format=json&geometry=contour']) {
+    try { const g = pick(await jget(u, { retries: 1 })); if (g && g.coordinates) return g; } catch (e) { console.warn('contour', u, e); }
+  }
+  const j = await jget('https://nominatim.openstreetmap.org/search?format=jsonv2&polygon_geojson=1&polygon_threshold=0.005&limit=4&accept-language=fr&countrycodes=fr&q=' + encodeURIComponent(label + ', région'), { retries: 0, timeout: 20000 });
+  const r = j.find(x => x.category === 'boundary' && x.geojson && /Polygon/.test(x.geojson.type));
+  if (!r) throw new Error('contour introuvable');
+  return r.geojson;
+}
+function simplifyRing(pts, tol) {
+  const keep = new Uint8Array(pts.length); keep[0] = keep[pts.length - 1] = 1; const st = [[0, pts.length - 1]];
+  while (st.length) {
+    const [i, j] = st.pop(); let md = 0, mi = -1; const [x1, y1] = pts[i], [x2, y2] = pts[j], dx = x2 - x1, dy = y2 - y1, L = dx * dx + dy * dy;
+    for (let k = i + 1; k < j; k++) { const [x, y] = pts[k]; let d; if (!L) d = Math.hypot(x - x1, y - y1); else { const t = clamp(((x - x1) * dx + (y - y1) * dy) / L, 0, 1); d = Math.hypot(x - x1 - t * dx, y - y1 - t * dy); } if (d > md) { md = d; mi = k; } }
+    if (md > tol && mi > 0) { keep[mi] = 1; st.push([i, mi], [mi, j]); }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+function geomToWKT(g, budget = 200) {
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  const area = r => r.reduce((a, p, i) => { const q = r[(i + 1) % r.length]; return a + (p[0] * q[1] - q[0] * p[1]); }, 0) / 2;
+  let rings = polys.map(p => p[0]);
+  if (rings.length > 1) { const big = Math.max(...rings.map(r => Math.abs(area(r)))); rings = rings.filter(r => Math.abs(area(r)) > big * 0.002); }
+  let tol = 0.002, out;
+  for (let it = 0; it < 16; it++) { out = rings.map(r => simplifyRing(r, tol)); if (out.reduce((a, r) => a + r.length, 0) <= budget) break; tol *= 1.6; }
+  out = out.filter(r => r.length >= 4).map(r => { if (area(r) < 0) r = r.slice().reverse(); return '(' + r.map(p => p[0].toFixed(3) + ' ' + p[1].toFixed(3)).join(',') + ')'; });
+  return out.length === 1 ? 'POLYGON(' + out[0] + ')' : 'MULTIPOLYGON(' + out.map(r => '(' + r + ')').join(',') + ')';
+}
+/* ---------- recouvrement biomes / écorégions (RESOLVE Ecoregions 2017) ---------- */
+function wktRings(w) {
+  const out = [];
+  (w.match(/\(([-\d.\s,eE+]+)\)/g) || []).forEach(g => { const pts = g.slice(1, -1).split(',').map(p => p.trim().split(/\s+/).map(Number)).filter(p => p.length === 2 && isFinite(p[0]) && isFinite(p[1])); if (pts.length >= 4) out.push(pts); });
+  return out;
+}
+function inRing(pt, ring) { let c = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const [xi, yi] = ring[i], [xj, yj] = ring[j]; if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) c = !c; } return c; }
+function samplePts(rings, target = 60) {
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; rings.forEach(r => r.forEach(([x, y]) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }));
+  const g = 40, pts = [];
+  for (let i = 0; i < g; i++) for (let j = 0; j < g; j++) { const p = [x0 + (i + .5) / g * (x1 - x0), y0 + (j + .5) / g * (y1 - y0)]; if (rings.some(r => inRing(p, r))) pts.push(p); }
+  if (!pts.length) pts.push([(x0 + x1) / 2, (y0 + y1) / 2]);
+  if (pts.length <= target) return pts;
+  const step = pts.length / target; return Array.from({ length: target }, (_, i) => pts[Math.floor(i * step)]);
+}
+async function zoneRings(N) {
+  if ((N.zk || 'circle') === 'circle') return wktRings(circleWKT(N));
+  if (N.wkt) return wktRings(N.wkt);
+  if (N.country) {
+    const j = await jget('https://nominatim.openstreetmap.org/search?' + qs({ format: 'jsonv2', q: N.zlabel, featuretype: 'country', countrycodes: N.country.toLowerCase(), polygon_geojson: 1, polygon_threshold: 0.05, limit: 1 }), { retries: 0, timeout: 20000 });
+    const g = j[0] && j[0].geojson; if (!g) throw new Error('contour du pays indisponible');
+    return (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).map(p => p[0]);
+  }
+  return [];
+}
+const coverKey = N => JSON.stringify([N.zk || 'circle', N.lat, N.lon, N.r, N.zcode, N.country]);
+async function computeCover(N, onProg) {
+  const rings = await zoneRings(N); if (!rings.length) throw new Error('zone vide');
+  const pts = samplePts(rings, 60), bi = {}, ec = {}, bname = {}; let none = 0, fail = 0, done = 0;
+  await pool(pts, 8, async p => {
+    try {
+      const j = await jget(ECO + '?' + qs({ f: 'json', geometry: p[0].toFixed(4) + ',' + p[1].toFixed(4), geometryType: 'esriGeometryPoint', inSR: 4326, spatialRel: 'esriSpatialRelIntersects', outFields: 'ECO_NAME,BIOME_NAME,BIOME_NUM', returnGeometry: 'false' }), { retries: 1, timeout: 15000 });
+      const a = j.features && j.features[0] && j.features[0].attributes;
+      if (!a || !a.ECO_NAME || a.BIOME_NUM > 90) none++; else { bi[a.BIOME_NUM] = (bi[a.BIOME_NUM] || 0) + 1; bname[a.BIOME_NUM] = a.BIOME_NAME; ec[a.ECO_NAME] = (ec[a.ECO_NAME] || 0) + 1; }
+    } catch { fail++; }
+    onProg && onProg(++done / pts.length);
+  });
+  const n = pts.length - fail; if (n < pts.length / 2) throw new Error('service des écorégions injoignable');
+  const arr = (o, f) => Object.entries(o).map(([k, v]) => [f ? f(k) : k, v / n * 100]).sort((a, b) => b[1] - a[1]);
+  return { key: coverKey(N), n, biomes: arr(bi, k => BIOMES_FR[k] || bname[k]), eco: arr(ec), none: none / n * 100 };
+}
+function coverHTML(cv) {
+  const row = ([n, p]) => `<div class="col" style="gap:3px"><div class="row sp"><span>${esc(n)}</span><span class="mono hint">${p < 1 ? '< 1' : p.toFixed(0)} %</span></div><div class="bar"><i style="width:${Math.max(1, p)}%"></i></div></div>`;
+  return `<h3>Biomes</h3>${cv.biomes.map(row).join('') || '<p class="hint">Aucun biome terrestre.</p>'}<h3>Écorégions</h3>${cv.eco.slice(0, 8).map(row).join('')}${cv.eco.length > 8 ? `<p class="hint">… et ${cv.eco.length - 8} autres.</p>` : ''}${cv.none > 0.5 ? `<p class="hint">Hors zones terrestres cartographiées (mer, glaces) : ${cv.none.toFixed(0)} %.</p>` : ''}<p class="hint">Estimation sur ${cv.n} points répartis régulièrement dans la zone. Source : RESOLVE Ecoregions 2017 (Dinerstein et al. 2017).</p>`;
+}
+async function showCover() {
+  const N = NEWC, box = $('#cover'); if ((N.zk || 'circle') !== 'circle' && !(N.country || N.wkt)) return toast("Choisissez d'abord une zone.");
+  if (N.cover && N.cover.key === coverKey(N)) { box.innerHTML = coverHTML(N.cover); return; }
+  busy('Biomes et écorégions…', 0);
+  try { N.cover = await computeCover(N, p => busy('Biomes et écorégions…', p)); busy(false); box.innerHTML = coverHTML(N.cover); }
+  catch (e) { busy(false); console.error('cover', e); toast('Calcul indisponible : ' + e.message); }
+}
+function updateModeHint() {
+  const N = NEWC, h = $('#modeHint'); if (!h) return;
+  const snd = N.taxa.length && N.taxa.every(t => t.snd);
+  h.textContent = N.mode === 'sound' ? (snd ? 'Seules les espèces avec enregistrements disponibles sont conservées. Extraits courts (≤ 8 s) ; avec une clé xeno-canto (Réglages), les enregistrements les plus courts sont privilégiés.' : 'Tous les groupes n’émettent pas de sons enregistrés : la liste peut être très courte.') : 'Photos d’observations (GBIF), de préférence issues de votre zone.';
+}
+function setCenter(lat, lon, fit) { NEWC.lat = +lat.toFixed(4); NEWC.lon = +lon.toFixed(4); $('#lat').value = NEWC.lat; $('#lon').value = NEWC.lon; moveMap(fit); }
+function moveMap(fit) { if (!map) return; mapMarker.setLatLng([NEWC.lat, NEWC.lon]); mapCircle.setLatLng([NEWC.lat, NEWC.lon]); if (fit) map.fitBounds(mapCircle.getBounds()); }
+function initMap() {
+  const el = $('#map');
+  if (!window.L) { el.innerHTML = '<p class="hint" style="padding:12px">Carte indisponible hors ligne. Saisissez la latitude et la longitude, ou cherchez un lieu.</p>'; el.style.height = 'auto'; return; }
+  map = L.map(el).setView([NEWC.lat, NEWC.lon], 9);
+  // Fonds de carte gratuits, sans clé d'API
+  const bases = {
+    'Relief (OpenTopoMap)': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { subdomains: 'abc', maxZoom: 17, attribution: '© OpenStreetMap, SRTM, © OpenTopoMap' }),
+    'Satellite (Esri)': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18, attribution: 'Imagery © Esri, Maxar, Earthstar Geographics' }),
+    'Plan (Esri)': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18, attribution: '© Esri, HERE, Garmin, OpenStreetMap contributors' })
+  };
+  const saved = LS.get('fnt.basemap', 'Relief (OpenTopoMap)');
+  (bases[saved] || bases['Relief (OpenTopoMap)']).addTo(map);
+  L.control.layers(bases, null, { position: 'topright', collapsed: true }).addTo(map);
+  map.on('baselayerchange', e => LS.set('fnt.basemap', e.name));
+  mapMarker = L.marker([NEWC.lat, NEWC.lon], { draggable: true }).addTo(map);
+  mapCircle = L.circle([NEWC.lat, NEWC.lon], { radius: NEWC.r * 1000, color: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#2e6b4d', weight: 2, fillOpacity: .12 }).addTo(map);
+  map.on('click', e => setCenter(e.latlng.lat, e.latlng.lng));
+  mapMarker.on('dragend', () => { const p = mapMarker.getLatLng(); setCenter(p.lat, p.lng); });
+  map.fitBounds(mapCircle.getBounds());
+}
+async function searchTaxon() {
+  const q = NEWC.q.trim(), box = $('#sug'); if (!box) return;
+  if (q.length < 3) { box.innerHTML = ''; return; }
+  try {
+    const j = await jget(GBIF + 'species/search?' + qs({ q, datasetKey: BACKBONE, status: 'ACCEPTED', limit: 12 }) + '&rank=ORDER&rank=FAMILY&rank=GENUS&rank=CLASS&rank=SUBFAMILY&rank=SPECIES', { retries: 1 });
+    NEWC.sug = (j.results || []).map(r => ({ key: r.key, snd: 0, label: (r.vernacularNames || []).find(v => v.language === 'fra')?.vernacularName || r.canonicalName || r.scientificName, sci: r.canonicalName || r.scientificName, rank: r.rank }));
+    box.innerHTML = NEWC.sug.length ? '<div class="sug">' + NEWC.sug.map((s, i) => `<button data-act="pickTaxon" data-i="${i}"><b>${esc(cap(s.label))}</b> <span class="hint"><i>${esc(s.sci)}</i> · ${esc(s.rank.toLowerCase())}</span></button>`).join('') + '</div>' : '<p class="hint">Aucun groupe trouvé.</p>';
+  } catch { box.innerHTML = '<p class="hint">Recherche impossible pour le moment.</p>'; }
+}
+async function reverseInfo(lat, lon) {
+  try { const j = await jget(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&accept-language=fr&lat=${lat}&lon=${lon}`, { retries: 0, timeout: 8000 }); const a = j.address || {}; return { label: a.city || a.town || a.village || a.municipality || a.county || a.state || '', cc: (a.country_code || '').toLowerCase() }; } catch { return { label: '', cc: '' }; }
+}
+async function reverseLabel(lat, lon) {
+  try { const j = await jget(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&accept-language=fr&lat=${lat}&lon=${lon}`, { retries: 0, timeout: 8000 }); const a = j.address || {}; return a.city || a.town || a.village || a.municipality || a.county || a.state || ''; } catch { return ''; }
+}
+
+/* ---------- aperçu des espèces ---------- */
+const isFrance = N => { const zk = N.zk || 'circle'; return zk === 'region' || (zk === 'country' && N.country === 'FR') || (zk === 'circle' && N.cc === 'fr'); };
+const TX = 'https://taxref.mnhn.fr/api/taxa/';
+const RANK_TX = { KINGDOM: 'KD', PHYLUM: 'PH', CLASS: 'CL', ORDER: 'OR', FAMILY: 'FM', GENUS: 'GN', SPECIES: 'ES', SUBFAMILY: 'SBFM', SUPERFAMILY: 'SPFM', SUBORDER: 'SBOR', TRIBE: 'TR' };
+const INFRA = new Set(['SSES', 'VAR', 'SVAR', 'FO', 'SSFO', 'CVAR', 'ABER', 'RACE', 'HYB', 'MO', 'LUSUS', 'NAT', 'PROLES', 'SSPROL', 'SSRACE', 'SMO', 'SSLUSUS', 'SF']);
+async function taxrefCount(sci, gbRank, budget = 250, onProg) {
+  const s = await jget(TX + 'search?' + qs({ scientificNames: sci, page: 1, size: 10 }), { retries: 1, timeout: 15000 });
+  const list = (s._embedded && s._embedded.taxa) || [], want = RANK_TX[gbRank];
+  const t = list.find(x => x.scientificName === sci && (!want || x.rankId === want)) || list.find(x => x.scientificName === sci);
+  if (!t) return null;
+  const present = k => k.fr === undefined || ['P', 'E', 'S', 'C', 'I', 'J'].includes(k.fr);
+  let n = 0, calls = 0, partial = false, allTerr = false;
+  if (t.rankId === 'ES') return { n: present(t) ? 1 : 0, partial: false, allTerr: t.fr === undefined };
+  const queue = [t.id];
+  while (queue.length && !partial) {
+    const batch = queue.splice(0, 8);
+    await Promise.all(batch.map(async id => {
+      if (calls >= budget) { partial = true; return; }
+      calls++;
+      const r = await jget(TX + id + '/children?' + qs({ size: 5000 }), { retries: 1, timeout: 20000 });
+      ((r._embedded && r._embedded.taxa) || []).forEach(k => { if (k.rankId === 'ES') { if (k.fr === undefined) allTerr = true; if (present(k)) n++; } else if (!INFRA.has(k.rankId)) queue.push(k.id); });
+      onProg && onProg(calls);
+    }));
+  }
+  return { n, partial, allTerr };
+}
+async function runTaxref(N, P) {
+  try {
+    let n = 0, partial = false, allTerr = false;
+    for (const t of N.taxa) {
+      let sci = t.sci, rank = t.rank;
+      if (!sci) { const sp = await jget(GBIF + 'species/' + t.key); sci = sp.canonicalName || sp.scientificName; rank = sp.rank; }
+      const r = await taxrefCount(sci, rank, 250, c => { const el = $('#trx'); if (el) el.textContent = `TAXREF : interrogation… (${c} requêtes)`; });
+      if (!r) throw new Error('groupe introuvable dans TAXREF');
+      n += r.n; partial = partial || r.partial; allTerr = allTerr || r.allTerr;
+    }
+    P.inv.taxref = { n, partial, allTerr };
+  } catch (e) { console.error('taxref', e); P.inv.taxref = { err: String(e.message || e) }; }
+  const el = $('#trx'); if (el && V.view === 'preview') el.textContent = taxrefText(P.inv.taxref);
+}
+const taxrefText = t => !t ? 'TAXREF : calcul en cours…' : t.err ? 'TAXREF : indisponible (' + t.err + ').' : `TAXREF : ${t.partial ? '≥ ' : ''}${t.n.toLocaleString('fr-FR')} espèces ${t.allTerr ? 'présentes en France (tous territoires)' : 'présentes en France métropolitaine'} pour ce groupe${t.partial ? ' (décompte partiel : groupe très vaste)' : ''}.`;
+async function findSpecies() {
+  const N = NEWC, F = RANKP[N.rank], un = UNITS[N.rank];
+  if ((N.zk || 'circle') !== 'circle' && !(N.country || N.wkt)) return toast("Choisissez d'abord une zone dans la liste.");
+  if (!N.taxa.length) return toast('Choisissez au moins un groupe taxonomique.');
+  const keys = N.taxa.map(t => t.key);
+  busy('Inventaire des espèces dans GBIF…', null);
+  try {
+    const spAll = await fetchAbundance(N, keys, {}, 'speciesKey');
+    const inv = { species: spAll.length, records: spAll.reduce((a, s) => a + s.n, 0) };
+    let list = N.rank === 'species' ? spAll : await fetchAbundance(N, keys, {}, F);
+    inv.units = list.length;
+    const total = list.length;
+    busy('Espèces avec médias…');
+    const med = await fetchAbundance(N, keys, { mediaType: N.mode === 'sound' ? 'Sound' : 'StillImage' }, 'speciesKey');
+    inv.withMedia = med.length;
+    list = list.filter(s => s.n >= S.minRecords);
+    inv.kept = list.length;
+    if (N.mode === 'sound' && !S.xcKey) {
+      busy('Recherche des enregistrements sonores…');
+      const snd = await fetchAbundance(N, keys, { mediaType: 'Sound' }, F), m = new Map(snd.map(s => [s.k, s.n]));
+      list = list.filter(s => (m.get(s.k) || 0) >= 2);
+      inv.withSound = list.length;
+    }
+    list.sort((a, b) => b.n - a.n);
+    if (list.length < 4) throw new Error(`Seulement ${list.length} ${un[1]} utilisable(s) avec ces critères (${inv.species} espèces inventoriées). Élargissez le rayon, changez de groupe ou de niveau de précision, ou baissez le minimum d’observations dans Réglages.`);
+    const top = list.slice(0, 8); let done = 0;
+    await pool(top, 6, async s => { try { await resolveName(s.k); } catch {} busy(`Noms des espèces les plus fréquentes… ${++done}/${top.length}`, done / top.length); });
+    saveNames();
+    let label = '';
+    if ((N.zk || 'circle') === 'circle') { busy('Localisation…'); const rv = await reverseInfo(N.lat, N.lon); label = rv.label; N.cc = rv.cc; } else N.cc = N.zk === 'country' ? String(N.country).toLowerCase() : N.zk === 'region' ? 'fr' : '';
+    let cover = N.cover && N.cover.key === coverKey(N) ? N.cover : null;
+    if (!cover) { busy('Biomes et écorégions…', 0); try { cover = N.cover = await computeCover(N, p => busy('Biomes et écorégions…', p)); } catch (e) { console.warn('cover', e); } }
+    PREVIEW = { species: list, total, label, inv, cover };
+    busy(false); go('preview');
+    if (isFrance(N)) runTaxref(N, PREVIEW);
+  } catch (e) { busy(false); toast(e.message.startsWith('HTTP') || /fetch|Failed|abort/i.test(e.message) ? 'GBIF est injoignable. Vérifiez la connexion.' : e.message); if (!/^Seulement/.test(e.message)) console.error(e); else modal(`<h3>Liste trop courte</h3><p>${esc(e.message)}</p><button class="btn pri" data-m="ok">OK</button>`); }
+}
+function invSummary(inv, un, mode, n, withCover) {
+  const mt = mode === 'sound' ? 'au moins un son' : 'au moins une photo';
+  return `<p class="hint">${inv.withMedia !== undefined ? `${inv.withMedia} espèces ont ${mt} dans GBIF pour cette zone. ` : ''}${inv.units !== undefined && un !== 'espèces' ? `Regroupées en ${inv.units} ${un}. ` : ''}${inv.kept !== undefined ? `${inv.kept} ${un} avec au moins ${S.minRecords} observations${inv.withSound !== undefined ? `, dont ${inv.withSound} avec des enregistrements sonores` : ''}. ` : ''}${n} retenus pour l’entraînement.</p>`;
+}
+function viewPreview() {
+  if (!PREVIEW) return go('home');
+  const N = NEWC, P = PREVIEW, fake = { species: P.species }, lv = levelsOf(fake), max = P.species[0].n;
+  const un = UNITS[N.rank][1], fr = isFrance(N);
+  app.innerHTML = `<div class="row sp"><h2>Inventaire GBIF</h2><button class="btn ghost sm" data-act="back">Retour</button></div>
+  <div class="card col" style="border-color:var(--accent)">
+    <div><span style="font:800 2.4rem var(--font-d)">${P.inv.species}</span> <b>espèces inventoriées</b></div>
+    <p>${esc(taxaLabel(N.taxa))} · ${esc(zoneDesc(N, P))}, d’après ${P.inv.records.toLocaleString('fr-FR')} observations GBIF depuis ${S.yearFrom}.</p>
+    ${invSummary(P.inv, un, N.mode, P.species.length)}
+    ${fr ? `<p><b id="trx">${esc(taxrefText(P.inv.taxref))}</b></p><p class="hint">Comparez avec les ${P.inv.withMedia} espèces illustrées dans GBIF et les ${P.inv.species} espèces observées dans la zone.</p>` : ''}
+    <p class="hint">Le classement repose sur le nombre d’observations : c’est une fréquence d’observation, pas un effectif.</p></div>
+  ${P.cover ? `<div class="card col"><details><summary><b>Biomes et écorégions de la zone</b></summary><div class="col" style="margin-top:10px">${coverHTML(P.cover)}</div></details></div>` : ''}
+  ${P.species.length > 150 ? `<div class="card col"><b>Groupe très riche (${P.species.length} ${un})</b><p class="hint">Valider chaque palier sur la totalité des ${un} serait irréaliste. Le mode grand groupe valide un palier avec le seuil de réussite sur les 30 dernières réponses, une fois 20 % des ${un} du palier étudiés (réglable dans Réglages).</p><button class="btn" data-act="bigMode">Activer le mode grand groupe</button></div>` : ''}
+  <div class="card col"><h3>Paliers de difficulté</h3>${lv.map(l => `<div class="row sp"><span><b>${esc(l.name)}</b> <span class="hint">${l.pct} % des ${un}</span></span><span class="chip mono">${l.n} ${un}</span></div>`).join('')}</div>
+  <div class="card col"><h3>Les plus fréquents</h3>${P.species.slice(0, 8).map(s => `<div class="col" style="gap:3px"><div class="row sp"><span>${esc(dn(s.k))} <span class="hint sci">${esc((NAMES[s.k] || {}).sci || '')}</span></span><span class="mono hint">${s.n}</span></div><div class="bar"><i style="width:${Math.max(2, s.n / max * 100)}%"></i></div></div>`).join('')}</div>
+  <button class="btn pri block" data-act="createCourse">Créer le parcours</button>`;
+}
+function createCourse() {
+  const N = NEWC, P = PREVIEW, zk = N.zk || 'circle';
+  const id = [N.taxa.map(t => t.key).sort((a, b) => a - b).join('+'), ...(zk === 'circle' ? [N.lat.toFixed(2), N.lon.toFixed(2), N.r] : [zk, N.zcode]), N.mode, N.rank === 'species' ? '' : N.rank].join('_');
+  if (COURSES[id]) { toast('Ce parcours existe déjà : reprise.'); return go('course', { id }); }
+  COURSES[id] = { id, created: Date.now(), last: Date.now(), taxon: { key: N.taxa[0].key, label: taxaLabel(N.taxa) }, taxa: N.taxa.map(t => t.key), zone: { kind: zk, lat: N.lat, lon: N.lon, r: N.r, label: zk === 'circle' ? P.label : N.zlabel, country: N.country, wkt: N.wkt, code: N.zcode, cc: N.cc }, mode: N.mode, rank: N.rank, inv: P.inv, cover: P.cover, yearFrom: S.yearFrom,
+    species: P.species, levelIdx: 0, maxLevel: 0, trained: {}, trials: [], stats: {}, seen: {}, dead: {}, badges: {}, tcount: 0 };
+  saveCourses(); NEWC = null; PREVIEW = null; go('course', { id });
+}
+
+/* ---------- arbre taxonomique ---------- */
+let TR = null;
+const mapNode = r => ({ key: r.key || r.nubKey, sci: r.canonicalName || r.scientificName, label: r.vernacularName ? cap(String(r.vernacularName).split(/[,;]/)[0].trim()) : (r.canonicalName || r.scientificName), rank: r.rank, n: r.numDescendants });
+async function treeFocus(node) {
+  busy('Chargement de la taxonomie GBIF…');
+  try {
+    TR.focus = node; TR.filter = ''; TR.offset = 0; TR.end = false; TR.kids = []; TR.path = [];
+    if (!node) { TR.kids = ROOTS; TR.end = true; }
+    else {
+      TR.path = (await jget(GBIF + 'species/' + node.key + '/parents')).map(mapNode).filter(p => p.key);
+      if (!/^(SPECIES|SUBSPECIES|VARIETY|FORM)$/.test(node.rank)) await treeMore();
+    }
+  } catch (e) { console.error('arbre', e); toast('Taxonomie GBIF indisponible.'); }
+  busy(false); viewTree();
+}
+async function treeMore() {
+  const j = await jget(GBIF + 'species/' + TR.focus.key + '/children?' + qs({ limit: 100, offset: TR.offset }));
+  const r = (j.results || []).map(mapNode).filter(x => x.key);
+  TR.kids.push(...r); TR.kids.sort((a, b) => a.sci.localeCompare(b.sci)); TR.offset += 100; TR.end = !!j.endOfRecords || !r.length;
+}
+function treeRows() {
+  const sel = new Set(NEWC.taxa.map(t => t.key)), q = norm(TR.filter);
+  const kids = TR.kids.filter(k => !q || norm(k.sci + ' ' + k.label).includes(q));
+  return (kids.map(k => `<div class="trow"><input type="checkbox" data-act="treeSel" data-k="${k.key}" ${sel.has(k.key) ? 'checked' : ''} aria-label="Sélectionner ${esc(k.sci)}"><button class="tname" data-act="treeGo" data-k="${k.key}" ${/^(SPECIES|SUBSPECIES|VARIETY|FORM)$/.test(k.rank) ? 'disabled' : ''}><b class="${k.label === k.sci ? 'sci' : ''}">${esc(k.label)}</b>${k.label !== k.sci ? ` <span class="hint sci">${esc(k.sci)}</span>` : ''}</button><span class="chip">${esc(RANK_FR[k.rank] || String(k.rank || '').toLowerCase())}</span>${k.n != null ? `<span class="mono hint" title="descendants">${k.n}</span>` : ''}</div>`).join('') || '<p class="hint">Rien à afficher.</p>') + (TR.end ? '' : '<button class="btn sm" data-act="treeMore" style="margin-top:8px">Voir plus</button>');
+}
+function viewTree() {
+  if (!TR || !NEWC) return go('home');
+  const N = NEWC, f = TR.focus, sel = new Set(N.taxa.map(t => t.key));
+  const crumbs = [`<button class="btn ghost sm" data-act="treeRoot">Vie</button>`, ...TR.path.map(p => `<button class="btn ghost sm" data-act="treeGo" data-k="${p.key}" title="${esc(RANK_FR[p.rank] || '')}">${esc(p.sci)}</button>`)];
+  app.innerHTML = `<div class="row sp"><h2>Arbre taxonomique</h2><button class="btn pri sm" data-act="treeDone">Valider (${N.taxa.length})</button></div>
+  <div class="crumbs" aria-label="Chemin taxonomique">${crumbs.join('<span class="hint">›</span>')}</div>
+  ${f ? `<div class="card col"><div class="row sp"><span><b class="sci" style="font-size:1.15rem">${esc(f.sci)}</b> <span class="chip">${esc(RANK_FR[f.rank] || '')}</span>${f.label !== f.sci ? `<br><span class="hint">${esc(f.label)}</span>` : ''}</span><label class="row" style="flex-wrap:nowrap"><input type="checkbox" data-act="treeSel" data-k="${f.key}" ${sel.has(f.key) ? 'checked' : ''} style="width:22px;height:22px;accent-color:var(--accent)"> <span>Tout ce groupe</span></label></div></div>` : '<p class="hint">Choisissez un règne pour descendre dans la classification : chaque niveau intermédiaire (sous-ordre, super-famille, tribu…) est affiché quand GBIF le connaît. Cochez un ou plusieurs groupes.</p>'}
+  <section class="card col"><div class="row"><input type="text" id="tf" class="grow" placeholder="Filtrer cette liste" aria-label="Filtrer" value="${esc(TR.filter)}"></div><div id="tlist">${treeRows()}</div></section>
+  <section class="card col"><h3>Aller directement à un groupe</h3><div class="row"><input type="text" id="ts" class="grow" placeholder="Nom scientifique ou français" aria-label="Rechercher dans la taxonomie"><button class="btn sm" data-act="treeSearch">Chercher</button></div><div id="tsr"></div></section>
+  <section class="card col"><h3>Sélection</h3><div class="row" id="tchips">${chipsHTML(N)}</div></section>`;
+  $('#tf').oninput = e => { TR.filter = e.target.value; $('#tlist').innerHTML = treeRows(); };
+  $('#ts').onkeydown = e => { if (e.key === 'Enter') ACT.treeSearch(); };
+}
+
+/* ---------- page parcours ---------- */
+function viewCourse() {
+  const c = COURSES[V.id]; if (!c) return go('home');
+  const lv = levelsOf(c), L = lv[c.levelIdx], m = mastery(c), keysRaw = c.species.slice(0, L.n).filter(s => !c.dead[s.k]);
+  const allTr = firstTrials(c), accTxt = m.n ? Math.round(m.acc * 100) + ' %' : '–';
+  const needTrain = m.untrained > 0;
+  const stale = c.last && Date.now() - c.last > 20 * 3600e3 && allTr.length > 10;
+  app.innerHTML = `<div class="row sp"><button class="btn ghost sm" data-act="nav" data-v="home">‹ Parcours</button><button class="btn ghost sm danger" data-act="delAsk">Supprimer</button></div>
+  <header class="col"><h1 style="font-size:1.5rem">${esc(courseTitle(c))}</h1><p class="hint">${c.inv ? `Inventaire GBIF : ${c.inv.species} espèces dans la zone` + (c.rank && c.rank !== 'species' ? `, regroupées en ${c.species.length} ${U(c)[1]} retenus` : '') : `${c.species.length} ${U(c)[1]} dans la zone`} · ${allTr.length} réponses</p></header>
+  ${stale ? '<div class="card" style="border-color:var(--accent)"><b>Révision espacée :</b> vous n’avez pas pratiqué depuis un moment. Un test de rappel renforce la mémoire à long terme.</div>' : ''}
+  <div class="col">${lv.map((l, i) => `<button class="lvl ${i < c.maxLevel || (c.completed && i === lv.length - 1) ? 'done' : ''}" data-act="setLevel" data-i="${i}" ${i > c.maxLevel ? 'disabled' : ''} aria-current="${i === c.levelIdx}"><span class="no">${c.badges['L' + l.i] ? '✓' : i + 1}</span><span class="grow"><b>${esc(l.name)}</b><br><span class="hint">${l.pct} % · ${l.n} ${U(c)[1]}</span></span>${i > c.maxLevel ? '<span class="hint">verrouillé</span>' : ''}</button>`).join('')}</div>
+  <section class="card col"><h3>Niveau ${esc(L.name)}</h3>
+    <div class="row sp"><span class="hint">Maîtrise (${m.n}/${m.W} dernières réponses) · ${m.trained}/${m.total} étudiés</span><b class="mono">${accTxt} / ${S.threshold} %</b></div>
+    <div class="bar" aria-hidden="true"><i style="width:${Math.round(m.acc * 100)}%"></i><span class="thr" style="left:${S.threshold}%"></span></div>
+    ${m.untrained ? `<p class="hint">${m.untrained} ${m.untrained > 1 ? U(c)[1] : U(c)[0]} du niveau à étudier en entraînement.</p>` : ''}
+    <div class="row"><button class="btn ${needTrain ? 'pri' : ''} grow" data-act="startTrain">Entraînement${needTrain ? ' (' + (m.untrained || keysRaw.length) + ' à étudier)' : ' : revoir'}</button>
+    <button class="btn ${needTrain ? '' : 'pri'} grow" data-act="startTest" ${Object.keys(c.trained).length < 2 ? 'disabled' : ''}>Test</button></div>
+    ${c.completed ? '<p class="chip ok">Parcours terminé : toutes les espèces sont maîtrisées. Continuez les tests pour entretenir vos acquis.</p>' : ''}</section>
+  ${c.inv ? `<section class="card col"><h3>Inventaire GBIF</h3><p><b>${c.inv.species}</b> espèces inventoriées dans la zone${c.inv.withMedia !== undefined ? `, dont <b>${c.inv.withMedia}</b> avec ${c.mode === 'sound' ? 'au moins un son' : 'au moins une photo'}` : ''}.</p>${c.inv.taxref && !c.inv.taxref.err ? `<p>${esc(taxrefText(c.inv.taxref))}</p>` : ''}${c.cover ? `<details><summary>Biomes et écorégions de la zone</summary><div class="col" style="margin-top:10px">${coverHTML(c.cover)}</div></details>` : ''}</section>` : ''}
+  <section class="card col"><h3>Pour aller plus loin</h3>
+    <button class="btn block" data-act="startCompare" ${Object.keys(c.trained).length < 2 ? 'disabled' : ''}>Comparer deux ${U(c)[1]} proches</button>
+    ${m.total > 150 && !(S.window > 0 && S.coverage < 100) ? '<button class="btn block" data-act="bigMode">Activer le mode grand groupe</button><p class="hint">Valide un palier avec 90 % sur les 30 dernières réponses, une fois 20 % des espèces du palier étudiées.</p>' : ''}
+    <button class="btn ghost block" data-act="forceLevel">Valider ce niveau sans test</button></section>
+  <section class="card col"><h3>${cap(U(c)[1])} du niveau</h3><div class="scroll"><table><tbody>${keysRaw.slice(0, 80).map((s, i) => { const st = c.stats[s.k]; const t = c.trials.filter(x => x[2] === s.k && !x[5]); const a = t.length ? Math.round(t.reduce((p, x) => p + x[3], 0) / t.length * 100) : null;
+    return `<tr><td class="mono hint">${c.species.indexOf(s) + 1}</td><td>${NAMES[s.k] ? `${esc(nameParts(s.k).big)}<br><span class="hint ${nameParts(s.k).bigSci ? '' : 'sci'}">${esc(nameParts(s.k).small)}</span>` : '<span class="hint">chargement du nom…</span>'}</td><td>${c.trained[s.k] ? (a === null ? '<span class="chip">étudiée</span>' : `<span class="chip ${a >= S.threshold ? 'ok' : a < 60 ? 'bad' : ''}">${a} %</span>`) : '<span class="hint">nouvelle</span>'}</td></tr>`; }).join('')}</tbody></table></div>${keysRaw.length > 80 ? `<p class="hint">… et ${keysRaw.length - 80} autres ${U(c)[1]}.</p>` : ''}</section>`;
+  const need = keysRaw.slice(0, 80).map(s => s.k).filter(k => !NAMES[k]);
+  if (need.length && V.tried !== c.id + '_' + c.levelIdx) {
+    V.tried = c.id + '_' + c.levelIdx;
+    (async () => { await pool(need, 6, async k => { try { await resolveName(k); } catch {} }); saveNames(); if (V.view === 'course' && V.id === c.id) viewCourse(); })();
+  }
+}
+
+/* ---------- entraînement ---------- */
+let T = null;
+async function startTrain() {
+  const c = COURSES[V.id]; busy('Préparation…');
+  try {
+    const raw = levelKeysRaw(c), todo = raw.filter(k => !c.trained[k]), list = todo.length ? todo : raw;
+    T = { c, all: list, chunks: [], ci: 0, cards: [], i: 0, review: !todo.length };
+    for (let i = 0; i < list.length; i += S.blockSize) T.chunks.push(list.slice(i, i + S.blockSize));
+    await buildChunk(0); busy(false); go('train');
+  } catch (e) { busy(false); console.error(e); toast("Impossible de préparer l'entraînement (réseau ?)."); }
+}
+const levelKeysRaw = c => c.species.slice(0, levelsOf(c)[c.levelIdx].n).map(s => s.k).filter(k => !c.dead[k]);
+async function buildChunk(ci) {
+  const c = T.c, shots = S.trainShots, per = {}; let done = 0;
+  await prepareNames(c, T.chunks[ci]);
+  const keys = T.chunks[ci].filter(k => !c.dead[k] && NAMES[k]);
+  await pool(keys, 5, async k => {
+    per[k] = []; const avoid = new Set();
+    for (let s = 0; s < shots; s++) { try { const it = await nextMedia(c, k, avoid); if (!it) break; avoid.add(it.creator || it.id); per[k].push(it); } catch { break; } }
+    if (per[k].length < Math.min(2, shots)) { c.dead[k] = 1; delete per[k]; }
+    busy(`Recherche des médias… ${++done}/${keys.length}`, done / keys.length);
+  });
+  const ks = keys.filter(k => per[k]), seq = [];
+  const blocked = Math.min(2, shots);
+  ks.forEach(k => per[k].slice(0, blocked).forEach(it => seq.push({ k, item: it, first: seq.every(x => x.k !== k) })));
+  const rest = Math.max(0, shots - blocked);
+  for (let r = 0; r < rest; r++) { let o = shuffle(ks); if (seq.length && o.length > 1 && o[0] === seq[seq.length - 1].k) o.push(o.shift()); o.forEach(k => { if (per[k][blocked + r]) seq.push({ k, item: per[k][blocked + r] }); }); }
+  T.ci = ci; T.cards = seq; T.i = 0; save(c);
+}
+let curMedia = null;
+async function viewTrain() {
+  if (!T) return go('home');
+  const c = T.c, card = T.cards[T.i];
+  if (!card) { return trainChunkDone(); }
+  app.innerHTML = `<div class="row sp"><button class="btn ghost sm" data-act="openCourse" data-id="${esc(c.id)}">✕ Quitter</button><span class="chip">Bloc ${T.ci + 1}/${T.chunks.length}</span><span class="mono hint">${T.i + 1}/${T.cards.length}</span></div>
+  <div class="bar"><i style="width:${(T.i) / T.cards.length * 100}%"></i></div>
+  <div id="mslot" class="col"><div class="spin" style="margin:60px auto"></div></div><div id="nm"></div>
+  <div class="row"><button class="btn ghost sm" data-act="trainBad">Média inutilisable</button><button class="btn ghost sm" data-act="reportId">Signaler une erreur d'identification</button></div>
+  <div class="row"><button class="btn grow" data-act="trainPrev" ${T.i ? '' : 'disabled'}>‹ Précédent</button><button class="btn pri grow" id="nextBtn" data-act="trainNext" disabled>Suivant ›</button></div>`;
+  const my = ++curToken;
+  try {
+    const m = await ensureAsset(c, card);
+    if (my !== curToken) return;
+    c.trained[card.k] = 1; save(c);
+    const slot = $('#mslot'); slot.innerHTML = ''; const mv = buildMedia(m, c.mode, card.item); slot.append(mv); curMedia = mv;
+    const n = NAMES[card.k], rank = c.species.findIndex(s => s.k === card.k) + 1, cnt = (c.species[rank - 1] || {}).n;
+    $('#nm').innerHTML = ` <div class="namebox">${nameHTML(card.k)}<div class="row" style="justify-content:center;margin-top:6px">${n.family ? `<span class="chip">${esc(n.family)}</span>` : ''}<span class="chip mono">n° ${rank} · ${cnt} obs.</span>${card.first ? `<span class="chip ok">${U(c)[2]}</span>` : ''}</div>${c.rank && c.rank !== 'species' && card.item.sp ? `<span class="hint">Sur cette image : <i>${esc(card.item.sp)}</i></span>` : ''}</div>`;
+    if (c.mode === 'sound') { const sl = $('.nmslot', mv); if (sl) sl.append($('#nm')); }
+    hints();
+    setTimeout(() => { const b = $('#nextBtn'); if (b) b.disabled = false; }, 900);
+    if (c.mode === 'sound') mv._play && mv._play();
+    const nx = T.cards[T.i + 1]; if (nx && c.mode === 'photo' && !nx.asset) ensureAsset(c, nx).catch(() => {});
+  } catch (e) { if (my === curToken) { toast('Média indisponible, carte ignorée.'); T.cards.splice(T.i, 1); viewTrain(); } }
+}
+let curToken = 0;
+async function ensureAsset(c, card) {
+  if (card.asset) return card.asset;
+  for (let a = 0; a < 5; a++) {
+    try { card.asset = await loadAsset(c, card.item); if (c.mode === 'photo') card.asset = card.asset.cloneNode ? card.asset : card.asset; return card.asset; }
+    catch { poolOf(c, card.k).bad.add(card.item.id); const it = await nextMedia(c, card.k); if (!it) throw new Error('none'); card.item = it; }
+  }
+  throw new Error('fail');
+}
+function trainChunkDone() {
+  const c = T.c, more = T.ci < T.chunks.length - 1, m = mastery(c);
+  app.innerHTML = `<div class="card col"><h2>Bloc terminé</h2><p>${T.chunks[T.ci].length} ${U(c)[1]} étudié${T.chunks[T.ci].length > 1 ? 's' : ''}${more ? `, il en reste ${T.chunks.slice(T.ci + 1).reduce((a, x) => a + x.length, 0)} à étudier dans ce niveau.` : '.'}</p>
+  <p class="hint">Conseil : testez-vous maintenant. Se rappeler une espèce pendant le test consolide davantage que la revoir.</p>
+  ${more ? '<button class="btn block" data-act="moreBlock">Bloc suivant</button>' : ''}
+  <button class="btn pri block" data-act="toTest">Passer au test</button><button class="btn ghost block" data-act="openCourse" data-id="${esc(c.id)}">Retour au parcours</button></div>`;
+}
+
+/* ---------- test ---------- */
+let X = null;
+async function startTest() {
+  const c = COURSES[V.id]; busy('Préparation du test…');
+  try {
+    await prepareNames(c, levelKeysRaw(c).filter(k => c.trained[k]));
+    if (trainedKeys(c).length < 2) { busy(false); return toast("Étudiez d'abord au moins 2 éléments en entraînement."); }
+    X = { c, n: 0, requeue: [], recent: [], upcoming: null, cur: null, answered: false, mastered: false };
+    initSession(); busy(false); go('test');
+  } catch (e) { busy(false); console.error(e); toast('Impossible de préparer le test (réseau ?).'); }
+}
+function initSession() {
+  const keys = trainedKeys(X.c); X.sessN = 0; X.sessOK = 0; X.sessDone = false;
+  if (S.testShots > 0) { X.quota = {}; keys.forEach(k => X.quota[k] = S.testShots); X.target = keys.length * S.testShots; }
+  else { X.quota = null; X.target = S.sessionLen; }
+}
+const sessionOver = () => X.sessN >= (X.target || S.sessionLen);
+function pickSpecies(c, X) {
+  const all = trainedKeys(c);
+  const di = X.requeue.findIndex(r => r.due <= X.n && all.includes(r.k));
+  if (di >= 0) { const r = X.requeue.splice(di, 1)[0]; return { k: r.k, r: 1, tries: r.tries }; }
+  let keys = all;
+  if (X.quota) { const q = all.filter(k => X.quota[k] > 0); if (q.length) keys = q; }
+  const w = keys.map(k => {
+    if (keys.length > 3 && X.recent.slice(-2).includes(k)) return 0;
+    const st = c.stats[k] || { n: 0, bits: '' }, bits = st.bits || '';
+    const acc = (bits.split('').reduce((a, b) => a + +b, 0) + 1) / (bits.length + 2);
+    let x = 1 + 3 * (1 - acc); if (!st.n) x += 3;
+    x += Math.min(3, (c.tcount - (st.lastIdx == null ? -999 : st.lastIdx)) / Math.max(keys.length, 5));
+    return x;
+  });
+  let r = Math.random() * w.reduce((a, b) => a + b, 0), i = 0; for (; i < w.length - 1; i++) { r -= w[i]; if (r <= 0) break; }
+  return { k: keys[i], r: 0 };
+}
+async function planTrial() {
+  const c = X.c;
+  for (let a = 0; a < 8; a++) {
+    const pk = pickSpecies(c, X);
+    try {
+      for (let b = 0; b < 5; b++) {
+        const item = await nextMedia(c, pk.k); if (!item) { c.dead[pk.k] = 1; if (X.quota && X.quota[pk.k] > 0) { X.target -= X.quota[pk.k]; X.quota[pk.k] = 0; } break; }
+        try { const m = await loadAsset(c, item); return { ...pk, item, m, t0: 0 }; } catch { poolOf(c, pk.k).bad.add(item.id); }
+      }
+    } catch (e) { console.error(e); }
+  }
+  throw new Error('Aucun média disponible');
+}
+function viewTest() {
+  if (!X) return go('home');
+  const c = X.c, L = levelsOf(c)[c.levelIdx];
+  app.innerHTML = `<div class="row sp"><button class="btn ghost sm" data-act="endTest">✕ Terminer</button><span class="chip">Niveau ${esc(L.name)}</span><span class="mono hint" id="sessInfo"></span></div>
+  <div class="col" style="gap:4px"><div class="bar" aria-hidden="true"><i id="mbar" style="width:0"></i><span class="thr" style="left:${S.threshold}%"></span></div><div class="hint mono" id="mtxt"></div></div>
+  <div class="bar" id="tb" hidden aria-hidden="true"><i id="tbar" style="width:100%"></i></div>
+  <div id="mslot" class="col"></div>
+  <form id="ans" class="col" autocomplete="off"><div class="row" style="flex-wrap:nowrap"><input type="text" id="answer" enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Nom ${c.rank === 'genus' ? 'du genre' : c.rank === 'family' ? 'de la famille' : 'de l’espèce'}" aria-label="Nom de l’espèce" class="grow"><button type="button" class="btn mic" id="micBtn" data-act="mic" aria-label="Répondre à la voix" style="padding:0 14px">${ico('mic')}</button></div>
+  <div id="acs" class="sug" hidden></div>
+  <div class="row"><button class="btn pri grow" type="submit" id="okBtn">Valider</button><button class="btn grow" type="button" data-act="idk" id="idkBtn">Je ne sais pas</button></div>
+  <button class="btn ghost sm" type="button" data-act="flag" id="flagBtn" style="align-self:flex-start">Média inutilisable</button></form>
+  <div id="fb"></div>`;
+  $('#micBtn').hidden = !SR; $('#micBtn').setAttribute('aria-pressed', MIC); hints();
+  $('#ans').onsubmit = e => { e.preventDefault(); if (X.answered) return; const v = $('#answer').value, al = X.voice && X.voice[0] === v ? X.voice : [v]; submitAnswer(al); };
+  $('#answer').oninput = () => { SUGI = -1; onAnswerInput(); };
+  $('#answer').onkeydown = e => {
+    const box = $('#acs'), bs = box && !box.hidden ? [...box.querySelectorAll('button')] : [];
+    if (!bs.length || X.answered) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); SUGI = e.key === 'ArrowDown' ? (SUGI + 1) % bs.length : (SUGI <= 0 ? bs.length - 1 : SUGI - 1); markSug(bs); }
+    else if ((e.key === 'Enter' || e.key === 'Tab') && SUGI >= 0) { e.preventDefault(); const k = +bs[SUGI].dataset.k; $('#answer').value = nameParts(k).big; X.voice = null; SUGI = -1; box.hidden = true; }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); box.hidden = true; SUGI = -1; }
+  };
+  updateMeter(); showTrial();
+}
+function suggest(q) {
+  const nq = norm(q); if (nq.length < 2) return [];
+  const res = [];
+  trainedKeys(X.c).forEach(k => { let sc = 0; acceptedNames(k).forEach(nm => { if (nm.startsWith(nq)) sc = Math.max(sc, 2); else if (nm.includes(nq)) sc = Math.max(sc, 1); }); if (sc) res.push([sc, k]); });
+  return res.sort((a, b) => b[0] - a[0] || nameParts(a[1]).big.localeCompare(nameParts(b[1]).big)).slice(0, 6).map(x => x[1]);
+}
+let SUGI = -1;
+function markSug(bs) { bs.forEach((b, i) => { b.classList.toggle('sel', i === SUGI); b.setAttribute('aria-selected', i === SUGI); }); if (bs[SUGI]) bs[SUGI].scrollIntoView({ block: 'nearest' }); }
+function onAnswerInput() {
+  const box = $('#acs'); if (!box) return;
+  const ks = S.autocomplete && X && !X.answered ? suggest($('#answer').value) : [];
+  box.hidden = !ks.length;
+  box.innerHTML = ks.map(k => { const p = nameParts(k); return `<button type="button" data-act="pickSug" data-k="${k}"><b>${esc(p.big)}</b> <span class="hint ${p.bigSci ? '' : 'sci'}">${esc(p.small)}</span></button>`; }).join('');
+}
+function updateMeter() {
+  const c = X.c, m = mastery(c); $('#mbar').style.width = Math.round(m.acc * 100) + '%';
+  $('#mtxt').textContent = `maîtrise ${m.n ? Math.round(m.acc * 100) : 0} % / ${S.threshold} % · ${m.n}/${m.W} réponses` + (m.untrained ? ` · ${m.untrained} ${U(c)[1]} à étudier` : '');
+  $('#sessInfo').textContent = `${X.sessN}/${X.target}`;
+}
+async function showTrial() {
+  X.answered = false; X.cur = null; X.voice = null; $('#fb').innerHTML = '';
+  const slot = $('#mslot'); slot.innerHTML = '<div class="spin" style="margin:60px auto"></div>';
+  const ans = $('#answer'); ans.value = ''; ans.disabled = false; $('#acs').hidden = true; $('#okBtn').disabled = false; $('#idkBtn').disabled = false; $('#flagBtn').disabled = false;
+  try {
+    let t = X.upcoming ? await X.upcoming : null; X.upcoming = null;
+    if (!t) t = await planTrial();
+    X.cur = t;
+    slot.innerHTML = ''; const mv = buildMedia(t.m, X.c.mode, t.item, { lock: true }); slot.append(mv); curMedia = mv; t.t0 = performance.now(); startTimer();
+    if (X.c.mode === 'sound') mv._play && mv._play();
+    ans.focus({ preventScroll: true }); hints(); startMic();
+  } catch (e) { X.upcoming = null; slot.innerHTML = '<div class="card col"><p>Aucun média disponible pour le moment (réseau ?).</p><button class="btn" data-act="retryTrial">Réessayer</button></div>'; }
+}
+function startTimer() {
+  clearTimeout(X.timer); const tb = $('#tbar'); if (!tb) return;
+  tb.parentElement.hidden = !S.timeLimit; if (!S.timeLimit) return;
+  tb.style.transition = 'none'; tb.style.width = '100%'; void tb.offsetWidth;
+  tb.style.transition = `width ${S.timeLimit}s linear`; tb.style.width = '0%';
+  X.timer = setTimeout(() => { if (X && !X.answered && X.cur) { submitAnswer([''], true, 'timeout'); } }, S.timeLimit * 1000);
+}
+function submitAnswer(texts, idk, why) {
+  if (X.answered || !X.cur) return; X.answered = true;
+  clearTimeout(X.timer); const c = X.c, t = X.cur, keys = trainedKeys(c), rt = Math.round(performance.now() - t.t0);
+  const r = idk ? { ok: false, conf: 0 } : evalAnswers(texts, t.k, keys), k = t.k;
+  const st = c.stats[k] || (c.stats[k] = { n: 0, ok: 0, bits: '' });
+  st.n++; st.ok += r.ok ? 1 : 0; st.bits = (st.bits + (r.ok ? 1 : 0)).slice(-6); st.lastIdx = c.tcount;
+  c.trials.push([Date.now(), c.levelIdx, k, r.ok ? 1 : 0, r.conf || 0, t.r ? 1 : 0, rt]); c.tcount++; c.last = Date.now();
+  if (c.trials.length > 6000) c.trials.splice(0, c.trials.length - 6000);
+  X.n++; X.recent.push(k); if (!t.r && X.quota && X.quota[k] > 0) X.quota[k]--;
+  if (!t.r) { X.sessN++; X.sessOK += r.ok ? 1 : 0; }
+  if (!r.ok) X.requeue.push({ k, due: X.n + (t.tries ? 6 : 3) + (Math.random() * 2 | 0), tries: (t.tries || 0) + 1 });
+  const newB = evalBadges(c, X); let lvlUp = false;
+  const m = mastery(c);
+  if (!t.r && m.ready && !c.badges['L' + levelsOf(c)[c.levelIdx].i]) { lvlUp = true; const L = levelsOf(c)[c.levelIdx]; c.badges['L' + L.i] = Date.now(); newB.unshift(BADGE_DEFS.find(b => b.id === 'L' + L.i)); }
+  save(c);
+  X.pendingBadges = (X.pendingBadges || []).concat(newB); X.lvlUp = X.lvlUp || lvlUp;
+  const n = NAMES[k], p = poolOf(c, k);
+  const refs = c.mode === 'photo' ? (c.seen[k] || []).map(id => p.items.find(i => i.id === id)).filter(i => i && i.id !== t.item.id && !p.bad.has(i.id)).slice(-3) : [];
+  const conf = r.conf ? `<p>Vous avez peut-être pensé à <b>${esc(dn(r.conf))}</b>.</p>` : '';
+  $('#fb').innerHTML = `<div class="fb ${r.ok ? 'ok' : 'bad'}" role="status"><div class="row sp"><b style="font-size:1.1rem">${why === 'timeout' ? 'Temps écoulé' : idk ? 'Pas de souci' : r.ok ? (r.typo ? 'Correct (orthographe approchante)' : 'Correct') : 'Raté'}</b><span class="mono hint">${(rt / 1000).toFixed(1)} s</span></div>
+    <div class="namebox" style="text-align:left">${nameHTML(k, n.family ? ' · ' + esc(n.family) : '')}</div>${r.ok ? '' : conf}
+    ${!r.ok && refs.length ? `<div class="refs">${refs.map(i => `<img src="${esc(i.url)}" alt="Autre photo de ${esc(dn(k))}" loading="lazy">`).join('')}</div>` : ''}
+    ${c.rank && c.rank !== 'species' && t.item.sp ? `<p class="hint">Sur cette image : <i>${esc(t.item.sp)}</i></p>` : ''}
+    ${!r.ok ? '<p class="hint">Cela reviendra dans quelques essais, avec une autre image.</p>' : ''}
+    <button class="btn ghost sm" data-act="reportId" style="align-self:flex-start">Signaler une erreur d'identification</button>
+    <button class="btn pri block" data-act="nextTrial" id="nextT">${X.lvlUp ? 'Voir le résultat' : sessionOver() ? 'Terminer la session' : 'Suivant'}</button></div>`;
+  $('#answer').disabled = true; $('#okBtn').disabled = true; $('#idkBtn').disabled = true; $('#flagBtn').disabled = true; $('#acs').hidden = true;
+  if (curMedia && curMedia._reveal) curMedia._reveal();
+  updateMeter();
+  if (!X.lvlUp && !sessionOver()) X.upcoming = planTrial().catch(() => null).then(v => v || undefined);
+  $('#nextT').focus({ preventScroll: true }); hints();
+}
+async function afterTrial() {
+  const c = X.c;
+  if (X.pendingBadges && X.pendingBadges.length) {
+    const bs = X.pendingBadges; X.pendingBadges = [];
+    const lvl = X.lvlUp; X.lvlUp = false;
+    if (lvl) return levelUp(c, bs);
+    modal(`<h3>Nouveau badge</h3>${bs.map(b => `<div class="row">${medal(b, true)}<div><b>${esc(b.title)}</b><br><span class="hint">${esc(b.desc)}</span></div></div>`).join('')}<button class="btn pri" data-m="ok">Continuer</button>`, () => afterTrial());
+    return;
+  }
+  if (sessionOver() && !X.sessDone) { X.sessDone = true; return sessionSummary(); }
+  showTrial();
+}
+function levelUp(c, bs) {
+  const lv = levelsOf(c), last = c.levelIdx >= lv.length - 1, L = lv[c.levelIdx];
+  if (last) c.completed = Date.now(); else { c.maxLevel = Math.max(c.maxLevel, c.levelIdx + 1); c.levelIdx++; }
+  save(c);
+  const nxt = lv[c.levelIdx];
+  modal(`<h2>${last ? 'Parcours terminé !' : 'Niveau supérieur !'}</h2>${bs.map(b => `<div class="row">${medal(b, true)}<div><b>${esc(b.title)}</b><br><span class="hint">${esc(b.desc)}</span></div></div>`).join('')}
+    <p>${last ? 'Vous maîtrisez 100 % des espèces de ce groupe dans cette zone. Continuez à vous tester pour entretenir vos acquis.' : `Niveau « ${esc(L.name)} » validé. Prochaine étape : ${esc(nxt.name)}, ${nxt.n} espèces. Commencez par l’entraînement sur les nouvelles espèces.`}</p>
+    <button class="btn pri" data-m="go">${last ? 'Retour au parcours' : 'Étudier les nouvelles espèces'}</button>`, () => { X = null; V.id = c.id; if (last) go('course', { id: c.id }); else { V.id = c.id; startTrain(); } });
+}
+function sessionSummary() {
+  const c = X.c, acc = X.sessN ? Math.round(X.sessOK / X.sessN * 100) : 0, m = mastery(c);
+  modal(`<h3>Session terminée</h3><div class="tiles"><div class="tile"><b>${acc} %</b><span>${X.sessOK}/${X.sessN} réponses</span></div><div class="tile"><b>${Math.round(m.acc * 100)} %</b><span>maîtrise (cible ${S.threshold} %)</span></div></div>
+    <button class="btn pri" data-m="more">Continuer</button><button class="btn" data-m="prog">Voir ma progression</button><button class="btn ghost" data-m="quit">Quitter</button>`,
+    a => { if (a === 'more') { initSession(); showTrial(); } else if (a === 'prog') { const id = c.id; X = null; go('progress', { id }); } else { const id = c.id; X = null; go('course', { id }); } });
+}
+
+/* ---------- comparaison de paires proches ---------- */
+let CP = null;
+function pairList(c) {
+  const keys = trainedKeys(c).slice(0, 200), conf = {};
+  firstTrials(c).forEach(t => { if (!t[3] && t[4]) { const id = [t[2], t[4]].sort().join('-'); conf[id] = (conf[id] || 0) + 1; } });
+  const out = [];
+  for (let i = 0; i < keys.length; i++) for (let j = i + 1; j < keys.length; j++) {
+    const a = NAMES[keys[i]], b = NAMES[keys[j]], id = [keys[i], keys[j]].sort().join('-');
+    let sc = (conf[id] || 0) * 10, why = conf[id] ? 'souvent confondus' : '';
+    if (a.genus && a.genus === b.genus && (c.rank || 'species') === 'species') { sc += 3; why = why || 'même genre'; }
+    else if (a.family && a.family === b.family) { sc += 1; why = why || 'même famille'; }
+    out.push([keys[i], keys[j], sc + Math.random() * 0.5, why || 'au hasard']);
+  }
+  return out.sort((x, y) => y[2] - x[2]).slice(0, 60);
+}
+async function startCompare() {
+  const c = COURSES[V.id], pairs = pairList(c);
+  if (!pairs.length) return toast('Étudiez au moins 2 éléments avant de les comparer.');
+  CP = { c, pairs, pi: 0 }; busy('Chargement de la paire…');
+  try { await loadPair(); busy(false); go('compare'); } catch (e) { busy(false); console.error(e); toast('Médias indisponibles (réseau ?).'); }
+}
+async function loadPair() {
+  const c = CP.c, [a, b] = CP.pairs[CP.pi], shots = c.mode === 'photo' ? 3 : 2; CP.cards = {};
+  await Promise.all([a, b].map(async k => {
+    const arr = [], avoid = new Set();
+    for (let s = 0; s < shots; s++) { const it = await nextMedia(c, k, avoid); if (!it) break; avoid.add(it.creator || it.id); const card = { k, item: it }; try { await ensureAsset(c, card); arr.push(card); } catch {} }
+    CP.cards[k] = arr;
+  }));
+  if (!CP.cards[a].length || !CP.cards[b].length) throw new Error('none');
+}
+function viewCompare() {
+  if (!CP) return go('home');
+  const c = CP.c, [a, b, , why] = CP.pairs[CP.pi];
+  app.innerHTML = `<div class="row sp"><button class="btn ghost sm" data-act="cmpQuit">✕ Quitter</button><span class="chip">${esc(why)}</span><span class="mono hint">${CP.pi + 1}/${CP.pairs.length}</span></div>
+  <div class="cmp">${[a, b].map(k => `<div class="col"><div class="namebox">${nameHTML(k)}</div><div class="col" id="cm${k}"></div></div>`).join('')}</div>
+  <p class="hint">Cherchez ce qui change d'une image à l'autre : silhouette, proportions, motifs, posture.</p>
+  <div class="row"><button class="btn grow" data-act="cmpOther">Autre paire</button><button class="btn pri grow" data-act="cmpDrill">S'entraîner à les distinguer</button></div>`;
+  [a, b].forEach(k => { const slot = $('#cm' + k); CP.cards[k].forEach(card => slot.append(buildMedia(card.asset, c.mode, card.item))); });
+}
+async function drillNext() {
+  const c = CP.c, d = CP.drill; if (d.n >= d.total) return drillEnd();
+  app.innerHTML = '<div class="spin" style="margin:80px auto"></div>';
+  const [a, b] = CP.pairs[CP.pi], k = Math.random() < .5 ? a : b, card = { k };
+  try { const it = await nextMedia(c, k); if (!it) throw 0; card.item = it; await ensureAsset(c, card); } catch { toast('Média indisponible.'); return drillEnd(); }
+  d.cur = { k, card, done: false }; const order = Math.random() < .5 ? [a, b] : [b, a];
+  app.innerHTML = `<div class="row sp"><button class="btn ghost sm" data-act="cmpBack">✕ Retour</button><span class="mono hint">${d.n + 1}/${d.total} · ${d.ok} juste${d.ok > 1 ? 's' : ''}</span></div><div id="mslot" class="col"></div>
+  <div class="row" style="flex-wrap:nowrap">${order.map(x => `<button class="btn grow" data-act="cmpPick" data-k="${x}" style="flex-direction:column;gap:0;min-width:0"><span>${esc(nameParts(x).big)}</span><span class="hint ${nameParts(x).bigSci ? '' : 'sci'}" style="font-weight:400;font-size:.85rem">${esc(nameParts(x).small)}</span></button>`).join('')}</div><div id="fb"></div>`;
+  const mv = buildMedia(card.asset, c.mode, card.item); $('#mslot').append(mv); curMedia = mv; if (c.mode === 'sound') mv._play && mv._play();
+}
+function drillEnd() {
+  const d = CP.drill, [a, b] = CP.pairs[CP.pi];
+  app.innerHTML = `<div class="card col"><h2>Paire terminée</h2><p><b>${d.ok}/${d.n}</b> bonnes réponses entre ${esc(dn(a))} et ${esc(dn(b))}.</p><button class="btn pri block" data-act="cmpDrill">Refaire avec cette paire</button><button class="btn block" data-act="cmpOther">Autre paire</button><button class="btn ghost block" data-act="cmpQuit">Retour au parcours</button></div>`;
+}
+
+/* ---------- voix ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, MIC = false;
+function startMic() {
+  if (!SR || rec || !MIC || V.view !== 'test' || !X || X.answered) return;
+  const b = $('#micBtn'); if (b) b.classList.add('on');
+  const r = rec = new SR(); r.lang = 'fr-FR'; r.continuous = true; r.interimResults = true; r.maxAlternatives = 5;
+  r.onresult = e => {
+    if (!X || X.answered) return;
+    const res = e.results[e.results.length - 1], a = $('#answer'); if (!a) return;
+    a.value = res[0].transcript;
+    if (res.isFinal) X.voice = [...res].map(x => x.transcript);
+    onAnswerInput();
+  };
+  r.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { MIC = false; toast('Accès au micro refusé. Autorisez-le dans le navigateur (la page doit être en https).'); } else if (e.error !== 'no-speech' && e.error !== 'aborted') toast('Reconnaissance vocale indisponible : ' + e.error); };
+  r.onend = () => { if (rec === r) rec = null; const x = $('#micBtn'); if (x && !rec) x.classList.toggle('on', false); if (MIC && V.view === 'test' && X && !X.answered) setTimeout(startMic, 1500); };
+  try { r.start(); } catch { rec = null; if (b) b.classList.remove('on'); }
+}
+function stopMic(off) { if (off) MIC = false; if (rec) { try { rec.stop(); } catch {} } const x = $('#micBtn'); if (x && off) x.classList.remove('on'); }
+function toggleMic() {
+  MIC = !MIC; const b = $('#micBtn'); if (b) b.setAttribute('aria-pressed', MIC);
+  if (MIC) { startMic(); toast(location.protocol === 'file:' ? 'Micro activé. Depuis un fichier local, Chrome redemande l’autorisation à chaque démarrage : lancez plutôt l’app via http://localhost (voir Méthode / Réglages).' : 'Micro activé : il reste actif d’un essai à l’autre. Validez avec Entrée.'); } else stopMic(true);
+  const a = $('#answer'); if (a && !a.disabled) a.focus({ preventScroll: true });
+}
+const HINTS = { '#micBtn': 'Micro (Alt+M) : reste actif d’un essai à l’autre', '#okBtn': 'Valider (Entrée)', '#idkBtn': 'Je ne sais pas (Alt+J)', '#flagBtn': 'Média inutilisable (Alt+I)', '#nextT': 'Essai suivant (Entrée)', '#nextBtn': 'Suivant (→)', '[data-act=trainPrev]': 'Précédent (←)', '[data-act=trainBad]': 'Média inutilisable (Alt+I)', '.zbtn': 'Agrandir (Alt+Z)', '.listen': 'Écouter (Espace ; Alt+L si le curseur est dans la réponse)', '#answer': '↑↓ : choisir une suggestion · Entrée : valider · Alt+M : micro · Alt+J : je ne sais pas · Alt+L : écouter', '[data-act=endTest]': 'Terminer la session (Échap)' };
+function hints() { Object.entries(HINTS).forEach(([q, t]) => document.querySelectorAll(q).forEach(n => { n.title = t; })); }
+
+/* ---------- signalements, journal ---------- */
+const REPORTS = LS.get('fnt.reports', []);
+function snapshot() {
+  const snap = { view: V.view, courseId: V.id || (X && X.c.id) || (T && T.c.id) || (CP && CP.c.id) || null };
+  const c = COURSES[snap.courseId];
+  if (c) snap.course = { id: c.id, title: courseTitle(c), mode: c.mode, rank: c.rank, levelIdx: c.levelIdx, maxLevel: c.maxLevel, nUnits: c.species.length, inv: c.inv, zone: { ...c.zone, wkt: c.zone.wkt ? c.zone.wkt.slice(0, 200) + '…' : undefined }, badges: c.badges, trials_last30: c.trials.slice(-30) };
+  const it = x => x && { id: x.id, occ: x.occ, url: x.url, creator: x.creator, ds: x.ds, dsn: x.dsn, life: x.life, sp: x.sp, lic: x.lic };
+  if (X && X.cur) snap.currentTrial = { k: X.cur.k, name: dn(X.cur.k), sci: NAMES[X.cur.k] && NAMES[X.cur.k].sci, answered: X.answered, item: it(X.cur.item) };
+  if (T && T.cards && T.cards[T.i]) snap.currentCard = { k: T.cards[T.i].k, name: dn(T.cards[T.i].k), item: it(T.cards[T.i].item) };
+  if (CP) snap.compare = { pair: CP.pairs[CP.pi] && CP.pairs[CP.pi].slice(0, 2) };
+  return snap;
+}
+function saveReport(type, text, extra) {
+  try { if (X) save(X.c); if (T) save(T.c); } catch {}
+  const r = { id: Date.now().toString(36), t: new Date().toISOString(), type, text, app: 'FieldNaturalistTrainer', ua: navigator.userAgent, page: location.href.split('#')[0], settings: S, snapshot: snapshot(), errors: ERRLOG.slice(-15), ...(extra || {}) };
+  REPORTS.push(r); while (REPORTS.length > 100) REPORTS.shift(); LS.set('fnt.reports', REPORTS); return r;
+}
+function logJSON(full) { return JSON.stringify({ exported: new Date().toISOString(), reports: REPORTS, errors: ERRLOG, badMedia: BAD.log.slice(-100), ...(full ? { backup: { settings: S, courses: COURSES, names: NAMES, bad: BAD } } : {}) }, null, 1); }
+function viewReport() {
+  app.innerHTML = `<h2>Signaler un problème</h2>
+  <section class="card col"><label class="f">Type<select id="rtype"><option value="bug">Bug de l'application</option><option value="id">Erreur d'identification (image ou son)</option><option value="idea">Suggestion</option></select></label>
+  <label class="f">Description<textarea id="rtext" class="t" placeholder="Que s'est-il passé ? Que faisiez-vous ?"></textarea></label>
+  <p class="hint">Le signalement enregistre automatiquement l'écran en cours, le parcours, le média affiché, vos réglages et les dernières erreurs techniques. Rien n'est envoyé : tout reste dans ce navigateur, dans le journal ci-dessous.</p>
+  <button class="btn pri block" data-act="saveReport">Enregistrer le signalement</button></section>
+  <section class="card col"><h3>Journal (${REPORTS.length} signalement${REPORTS.length > 1 ? 's' : ''}, ${ERRLOG.length} erreur${ERRLOG.length > 1 ? 's' : ''} technique${ERRLOG.length > 1 ? 's' : ''})</h3>
+  ${REPORTS.slice(-8).reverse().map(r => `<div class="row sp"><span class="grow"><b>${r.type === 'bug' ? 'Bug' : r.type === 'id' ? 'Identification' : 'Idée'}</b> <span class="hint">${new Date(r.t).toLocaleString('fr-FR')}</span><br>${esc(String(r.text || '').slice(0, 120))}</span></div>`).join('') || '<p class="hint">Aucun signalement.</p>'}
+  <div class="row"><button class="btn grow" data-act="logCopy">Copier le journal</button><button class="btn grow" data-act="logDl">Télécharger</button></div>
+  <button class="btn ghost" data-act="logDlFull">Télécharger avec la sauvegarde complète</button>
+  <button class="btn ghost danger" data-act="logClear">Vider le journal</button>
+  <p class="hint">Pour faire corriger un bug : copiez ou téléchargez le journal et transmettez-le avec votre demande.</p></section>`;
+}
+function currentMediaCtx() {
+  if (V.view === 'test' && X && X.cur) return { c: X.c, k: X.cur.k, item: X.cur.item, where: 'test' };
+  if (V.view === 'train' && T && T.cards[T.i]) return { c: T.c, k: T.cards[T.i].k, item: T.cards[T.i].item, where: 'entrainement' };
+  return null;
+}
+function reportIdModal() {
+  const ctx = currentMediaCtx(); if (!ctx) return toast('Aucun média en cours.');
+  const o = modal(`<h3>Erreur d'identification</h3><p class="hint">Étiquette annoncée : <b>${esc(dn(ctx.k))}</b>${ctx.item.occ ? ` · observation ${ctx.item.occ}` : ''}</p>
+    <textarea id="rtext2" class="t" placeholder="Qu'est-ce qui ne va pas ? (autre espèce probable, individu partiel, mauvaise étiquette…)"></textarea>
+    <label class="row" style="flex-wrap:nowrap"><input type="checkbox" id="rbad" checked style="width:22px;height:22px;accent-color:var(--accent)"> <span>Ne plus utiliser cette image</span></label>
+    <button class="btn pri" data-m="save">Enregistrer</button><button class="btn ghost" data-m="no">Annuler</button>`, a => {
+    if (a !== 'save') return;
+    const txt = $('#rtext2', o) ? $('#rtext2', o).value : '', bad = $('#rbad', o) ? $('#rbad', o).checked : true;
+    saveReport('id', txt, { media: { k: ctx.k, name: dn(ctx.k), sci: NAMES[ctx.k] && NAMES[ctx.k].sci, item: ctx.item, where: ctx.where } });
+    if (bad) markBad(ctx.c, ctx.k, ctx.item, 'identification');
+    toast('Signalement enregistré.');
+  });
+  const ta = $('#rtext2', o); if (ta) ta.focus();
+}
+
+/* ---------- progression ---------- */
+function curveSVG(c) {
+  const tr = firstTrials(c); if (tr.length < 5) return '<p class="hint">La courbe apparaît après 5 réponses.</p>';
+  const W = 640, H = 250, m = { l: 34, r: 10, t: 14, b: 26 }, win = [], pts = [];
+  tr.forEach(t => { win.push(t[3]); if (win.length > 20) win.shift(); pts.push(win.reduce((a, b) => a + b, 0) / win.length * 100); });
+  const x = i => m.l + i / (tr.length - 1) * (W - m.l - m.r), y = v => m.t + (1 - v / 100) * (H - m.t - m.b);
+  const line = pts.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join('');
+  const lv = levelsOf(c); let marks = '';
+  tr.forEach((t, i) => { if (i && t[1] !== tr[i - 1][1]) marks += `<line x1="${x(i)}" x2="${x(i)}" y1="${m.t}" y2="${H - m.b}" stroke="var(--muted)" stroke-dasharray="3 3"/><text x="${x(i) + 3}" y="${m.t + 9}">${esc((lv[t[1]] || {}).name || '')}</text>`; });
+  const ticks = [0, 25, 50, 75, 100].map(v => `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`).join('');
+  const xt = [0, Math.floor((tr.length - 1) / 2), tr.length - 1].map((i, j) => `<text x="${x(i)}" y="${H - 8}" text-anchor="${j === 0 ? 'start' : j === 2 ? 'end' : 'middle'}">${i + 1}</text>`).join('');
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Courbe d’apprentissage : précision glissante sur 20 réponses" style="width:100%;height:auto">${ticks}${marks}
+    <line x1="${m.l}" x2="${W - m.r}" y1="${y(S.threshold)}" y2="${y(S.threshold)}" stroke="var(--gold)" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <path d="${line}L${x(tr.length - 1)} ${y(0)}L${x(0)} ${y(0)}Z" fill="var(--accent)" opacity=".12"/>
+    <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>
+    <circle cx="${x(tr.length - 1)}" cy="${y(pts[pts.length - 1])}" r="4.5" fill="var(--accent)"/>${xt}</svg>
+    <p class="hint">Précision glissante (20 dernières réponses, hors rappels). Pointillé doré : seuil de ${S.threshold} %. Axe horizontal : numéro de réponse.</p>`;
+}
+function viewProgress() {
+  const cs = Object.values(COURSES);
+  if (!cs.length) { app.innerHTML = '<h2>Progression</h2><p class="hint">Aucun parcours pour le moment.</p>'; return; }
+  const c = COURSES[V.id] || cs.sort((a, b) => (b.last || 0) - (a.last || 0))[0]; V.id = c.id;
+  const tr = firstTrials(c), last50 = tr.slice(-50), acc = last50.length ? Math.round(last50.reduce((a, t) => a + t[3], 0) / last50.length * 100) : 0;
+  const rt = median(last50.filter(t => t[3] && t[6]).map(t => t[6])) / 1000;
+  const conf = {}; tr.filter(t => !t[3] && t[4]).forEach(t => { const key = t[2] + '>' + t[4]; conf[key] = (conf[key] || 0) + 1; });
+  const cf = Object.entries(conf).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const byS = {}; tr.forEach(t => { (byS[t[2]] = byS[t[2]] || []).push(t[3]); });
+  const weak = Object.entries(byS).filter(([, a]) => a.length >= 3).map(([k, a]) => [k, a.reduce((p, q) => p + q, 0) / a.length, a.length]).sort((a, b) => a[1] - b[1]).slice(0, 6);
+  const sess = []; tr.forEach(t => { const s = sess[sess.length - 1]; if (s && t[0] - s.end < 30 * 60e3) { s.n++; s.ok += t[3]; s.end = t[0]; } else sess.push({ start: t[0], end: t[0], n: 1, ok: t[3] }); });
+  app.innerHTML = `<h2>Progression</h2>
+  <select id="cpick" aria-label="Parcours">${cs.map(x => `<option value="${esc(x.id)}" ${x.id === c.id ? 'selected' : ''}>${esc(courseTitle(x))}</option>`).join('')}</select>
+  <div class="tiles"><div class="tile"><b>${tr.length}</b><span>réponses</span></div><div class="tile"><b>${acc} %</b><span>50 dernières</span></div><div class="tile"><b>${rt ? rt.toFixed(1) + ' s' : '–'}</b><span>temps médian (bonnes réponses)</span></div><div class="tile"><b>${Object.keys(c.trained).length}/${c.species.length}</b><span>espèces étudiées</span></div></div>
+  <section class="card col"><h3>Courbe d’apprentissage</h3>${curveSVG(c)}</section>
+  ${weak.length ? `<section class="card col"><h3>À retravailler</h3>${weak.map(([k, a, n]) => `<div class="row sp"><span>${esc(dn(+k))}</span><span class="chip ${a < .6 ? 'bad' : ''}">${Math.round(a * 100)} % · ${n}×</span></div>`).join('')}</section>` : ''}
+  ${cf.length ? `<section class="card col"><h3>Confusions fréquentes</h3>${cf.map(([key, n]) => { const [a, b] = key.split('>'); return `<div class="row sp"><span>${esc(dn(+a))} <span class="hint">pris pour</span> ${esc(dn(+b))}</span><span class="chip mono">${n}×</span></div>`; }).join('')}</section>` : ''}
+  ${sess.length ? `<section class="card col"><h3>Dernières sessions</h3><div class="scroll"><table>${sess.slice(-8).reverse().map(s => `<tr><td>${new Date(s.start).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td><td class="mono">${s.n} rép.</td><td><span class="chip ${s.ok / s.n >= S.threshold / 100 ? 'ok' : ''}">${Math.round(s.ok / s.n * 100)} %</span></td></tr>`).join('')}</table></div></section>` : ''}`;
+  $('#cpick').onchange = e => { V.id = e.target.value; viewProgress(); };
+}
+
+/* ---------- badges ---------- */
+function viewBadges() {
+  const cs = Object.values(COURSES);
+  app.innerHTML = '<h2>Badges</h2>' + (cs.length ? cs.map(c => `<section class="card col"><h3>${esc(courseTitle(c))}</h3><div class="badges">${BADGE_DEFS.filter(d => d.id[0] !== 'L' || levelsOf(c).some(l => 'L' + l.i === d.id)).map(d => { const on = c.badges[d.id]; return `<div class="bd">${medal(d, !!on)}<b>${esc(d.title)}</b><span class="hint">${on ? new Date(on).toLocaleDateString('fr-FR') : esc(d.desc)}</span></div>`; }).join('')}</div></section>`).join('') : '<p class="hint">Les badges sont attribués par groupe taxonomique et par territoire. Créez un parcours pour commencer.</p>');
+}
+
+/* ---------- méthode ---------- */
+function viewMethod() {
+  app.innerHTML = `<h2>Méthode d’apprentissage</h2>
+  <section class="card col"><h3>Pourquoi cette progression</h3>
+  <p><b>Peu d’espèces d’abord, les plus communes en premier.</b> Les paliers 5, 10, 25, 50, 100 % limitent la charge initiale ; les espèces que vous rencontrerez le plus souvent sont acquises en premier, et chaque palier contient les précédents.</p>
+  <p><b>Étude avec le nom, puis test sur des images neuves.</b> L’entraînement montre chaque espèce avec son nom. Le test utilise toujours des photos ou sons jamais vus, ce qui mesure la généralisation, c’est-à-dire la reconnaissance sur le terrain, et non la mémoire d’une image.</p>
+  <p><b>Exemplaires variés.</b> Plusieurs observateurs, lumières et postures par espèce, puisés dans votre zone en priorité.</p>
+  <p><b>Bloqué puis entrelacé.</b> Chaque espèce est d’abord vue deux fois de suite pour fixer ses traits, puis les espèces sont mélangées, ce qui oblige à les discriminer entre elles.</p>
+  <p><b>Rappel actif avec correction immédiate.</b> Le test demande de produire le nom ; l’erreur déclenche la bonne réponse et des images de référence. Les espèces ratées reviennent après 3 à 6 essais avec une autre image (rappel espacé) ; ces rappels ne comptent pas dans le score.</p>
+  <p><b>Comparaison de paires proches.</b> Deux espèces souvent confondues (ou du même genre) sont présentées côte à côte puis testées en choix forcé : la discrimination se construit sur ce qui les distingue.</p>
+  <p><b>Temps limité (option).</b> Une limite de quelques secondes pousse vers la reconnaissance globale plutôt que l'analyse de détails.</p>
+  <p><b>Fréquence de révision adaptative.</b> Les espèces peu réussies, jamais testées ou non vues depuis longtemps sont tirées plus souvent.</p>
+  <p><b>Passage de niveau.</b> Au moins ${S.threshold} % de réussite (réglable) sur les N dernières réponses du palier. Par défaut N = 1,5 × nombre de labels (entre 20 et 60) et tous les labels du palier doivent être étudiés. Pour les très grands groupes, fixez N à 30 et réduisez la part de labels à étudier (mode grand groupe).</p></section>
+  <section class="card col"><h3>Limites à connaître</h3>
+  <p>Le classement local repose sur le nombre d’observations GBIF, donc sur l’effort d’observation autant que sur l’abondance. Les espèces très photographiées ou très suivies paraissent plus communes.</p>
+  <p>Certaines photos GBIF sont imparfaites (mauvaise identification, individu partiel). Le bouton « Média inutilisable » l’écarte.</p></section>
+  <section class="card col"><h3>Références</h3><ul class="refs-list">
+  <li>Roediger &amp; Karpicke (2006). Test-enhanced learning. <i>Psychological Science</i>.</li>
+  <li>Kornell &amp; Bjork (2008). Learning concepts and categories: is spacing the “enemy of induction”? <i>Psychological Science</i>.</li>
+  <li>Carvalho &amp; Goldstone (2014). Putting category learning in order. <i>Memory &amp; Cognition</i>.</li>
+  <li>Cepeda et al. (2006). Distributed practice in verbal recall tasks. <i>Psychological Bulletin</i>.</li>
+  <li>Bjork (1994). Memory and metamemory considerations in the training of human beings.</li>
+  <li>Goldstone (1998). Perceptual learning. <i>Annual Review of Psychology</i>.</li></ul></section>
+  <section class="card col"><h3>Origine du projet</h3>
+  <p>Cette application est née d'une idée de <b>Maxime Cauchoix</b> (SETE, CNRS) et a été codée par <b>Claude</b> (Anthropic), à partir de ses demandes successives.</p></section>
+  <section class="card col"><h3>Coût carbone de la création (estimation)</h3>
+  <p>Le développement a nécessité <b>5 demandes</b> (6 messages, l'une ayant été envoyée deux fois) et environ <b>2 à 3 heures de calcul cumulé</b> : génération du code, appels d'outils et tests automatisés.</p>
+  <p>Hypothèses : une session assistée par un grand modèle mobilise en moyenne l'équivalent de 150 à 300 W de serveur (part d'un nœud GPU partagé, refroidissement compris) et l'électricité émet 0,2 à 0,45 kg CO₂e par kWh. Cela donne <b>environ 0,4 à 0,8 kWh</b>, soit <b>environ 0,1 à 0,35 kg de CO₂e</b> (de l'ordre de 0,5 à 2 km en voiture thermique).</p>
+  <p class="hint">Ce chiffre est un ordre de grandeur, pas une mesure : Anthropic ne publie pas la consommation par requête, la durée de calcul est estimée à la louche, et l'estimation exclut l'entraînement du modèle, la fabrication des serveurs et les appareils de l'utilisateur. L'usage de l'application elle-même ne mobilise aucun serveur : tout s'exécute dans votre navigateur, avec des requêtes vers GBIF.</p></section>
+  <section class="card col"><h3>Sources de données</h3><p>Occurrences, images, sons, noms valides et noms français : <a href="https://www.gbif.org" target="_blank" rel="noopener">GBIF</a> (Backbone Taxonomy) ; noms français complémentaires : <a href="https://taxref.mnhn.fr" target="_blank" rel="noopener">TAXREF</a> ; sons : GBIF et <a href="https://xeno-canto.org" target="_blank" rel="noopener">xeno-canto</a> ; biomes et écorégions : <a href="https://ecoregions.appspot.com" target="_blank" rel="noopener">RESOLVE Ecoregions 2017</a> ; contours des régions : geo.api.gouv.fr ; fonds de carte OpenTopoMap, Esri et contributeurs OpenStreetMap. Les crédits et licences de chaque média sont affichés sous l’image.</p></section>`;
+}
+
+/* ---------- réglages ---------- */
+function viewSettings() {
+  app.innerHTML = `<h2>Réglages</h2>
+  <section class="card col">
+  <label class="f">Nom affiché en grand<select id="s_nf"><option value="fr" ${S.nameFirst !== 'latin' ? 'selected' : ''}>Nom français (latin en dessous)</option><option value="latin" ${S.nameFirst === 'latin' ? 'selected' : ''}>Nom scientifique (français en dessous)</option></select></label>
+  <label class="f" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" id="s_ac" ${S.autocomplete ? 'checked' : ''} style="width:22px;height:22px"> Autocomplétion pendant le test (avec les labels du parcours)</label>
+  <label class="f">Seuil de réussite : <span class="mono" id="v1">${S.threshold} %</span><input type="range" id="s_thr" min="60" max="100" value="${S.threshold}"></label>
+  <label class="f">Images par label en entraînement : <span class="mono" id="v2">${S.trainShots}</span><input type="range" id="s_shots" min="1" max="12" value="${S.trainShots}"></label>
+  <label class="f">Espèces par bloc d’entraînement : <span class="mono" id="v3">${S.blockSize}</span><input type="range" id="s_blk" min="4" max="20" value="${S.blockSize}"></label>
+  <label class="f">Réponses par session : <span class="mono" id="v4">${S.sessionLen}</span><input type="range" id="s_ses" min="10" max="50" step="5" value="${S.sessionLen}"></label>
+  <label class="f">Images de test par label et par session<input type="number" id="s_ts" value="${S.testShots}" min="0" max="10"><small>0 = automatique : la session dure le nombre de réponses ci-dessus. Sinon chaque label est testé exactement ce nombre de fois par session.</small></label>
+  <label class="f">Temps limité par réponse (secondes)<input type="number" id="s_tl" value="${S.timeLimit}" min="0" max="60"><small>0 = sans limite. Une réponse hors délai compte comme une erreur ; 5 à 8 s entraîne la reconnaissance rapide.</small></label>
+  <label class="f">Fenêtre de maîtrise (dernières réponses)<input type="number" id="s_win" value="${S.window}" min="0" max="100"><small>0 = automatique (1,5 × nombre de labels, entre 20 et 60). Pour les grands groupes, 30 convient.</small></label>
+  <label class="f">Part des labels du niveau à étudier avant validation : <span class="mono" id="v5">${S.coverage} %</span><input type="range" id="s_cov" min="5" max="100" step="5" value="${S.coverage}"><small>Réduisez pour les groupes de plusieurs milliers d'espèces.</small></label>
+  <label class="f">Observations GBIF depuis l’année<input type="number" id="s_year" value="${S.yearFrom}" min="1950" max="${new Date().getFullYear()}"><small>Pour les prochains parcours.</small></label>
+  <label class="f">Observations minimales par espèce<input type="number" id="s_min" value="${S.minRecords}" min="1" max="50"><small>Écarte les signalements isolés, souvent des erreurs.</small></label>
+  <label class="f" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" id="s_zone" ${S.zoneFirst ? 'checked' : ''} style="width:22px;height:22px"> Médias de la zone d’abord</label>
+  <label class="f">Clé API xeno-canto (facultatif)<input type="password" id="s_xc" value="${esc(S.xcKey)}" autocomplete="off"><small>Permet de choisir les enregistrements les plus courts. Clé gratuite sur xeno-canto.org (compte requis).</small></label></section>
+  <section class="card col"><h3>Médias écartés</h3><p class="hint">${Object.keys(BAD.items).length} média(s) signalés inutilisables, ${Object.keys(BAD.ds).length} dataset(s) et ${Object.keys(BAD.owner).length} auteur(s) concernés. Les médias d'un dataset ou d'un auteur souvent signalé sont tirés de moins en moins souvent.</p><button class="btn ghost danger sm" data-act="badReset" style="align-self:flex-start">Réinitialiser la liste</button></section>
+  <section class="card col"><h3>Données locales</h3><p class="hint">Tout est stocké dans ce navigateur. Exportez régulièrement une sauvegarde.</p>
+  <div class="row"><button class="btn grow" data-act="export">Exporter</button><label class="btn grow" for="imp" style="cursor:pointer">Importer</label><input type="file" id="imp" accept="application/json" hidden></div>
+  <button class="btn danger" data-act="resetAsk">Tout effacer</button></section>`;
+  const bind = (id, key, vid, fmt, num = true) => { const el = $('#' + id); el.oninput = () => { S[key] = num ? +el.value : el.value; if (vid) $('#' + vid).textContent = fmt(S[key]); saveSettings(); }; };
+  bind('s_thr', 'threshold', 'v1', v => v + ' %'); bind('s_shots', 'trainShots', 'v2', v => v); bind('s_blk', 'blockSize', 'v3', v => v); bind('s_ses', 'sessionLen', 'v4', v => v);
+  bind('s_year', 'yearFrom'); bind('s_ts', 'testShots'); bind('s_tl', 'timeLimit'); bind('s_win', 'window'); bind('s_cov', 'coverage', 'v5', v => v + ' %'); bind('s_min', 'minRecords'); bind('s_xc', 'xcKey', null, null, false);
+  $('#s_nf').onchange = e => { S.nameFirst = e.target.value; saveSettings(); };
+  $('#s_ac').onchange = e => { S.autocomplete = e.target.checked; saveSettings(); };
+  $('#s_zone').onchange = e => { S.zoneFirst = e.target.checked; saveSettings(); };
+  $('#imp').onchange = async e => { try { const j = JSON.parse(await e.target.files[0].text()); Object.assign(COURSES, j.courses || {}); Object.assign(NAMES, j.names || {}); if (j.bad) { Object.assign(BAD.items, j.bad.items || {}); Object.assign(BAD.ds, j.bad.ds || {}); Object.assign(BAD.owner, j.bad.owner || {}); LS.set('fnt.bad', BAD); } if (j.settings) Object.assign(S, j.settings); saveCourses(); saveNames(); saveSettings(); toast('Sauvegarde importée.'); } catch { toast('Fichier invalide.'); } };
+}
+
+/* ---------- actions ---------- */
+function dl(name, text) { const b = new Blob([text], { type: 'application/json' }), a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
+const ACT = {
+  nav: t => { if (t.dataset.v === 'new') NEWC = null; go(t.dataset.v, t.dataset.v === 'progress' ? {} : {}); },
+  newCourse: () => { NEWC = null; go('new'); },
+  openCourse: t => { X = null; T = null; go('course', { id: t.dataset.id }); },
+  back: () => go('new'),
+  geoloc: () => {
+    const fallback = async why => {
+      try { const j = await jget('https://get.geojs.io/v1/ip/geo.json', { retries: 0, timeout: 8000 }); if (j.latitude) { setCenter(+j.latitude, +j.longitude, true); return toast(why + ' Position approximative d\u00e9duite de votre adresse IP : d\u00e9placez le marqueur si besoin.'); } } catch {}
+      toast(why + ' Placez le marqueur sur la carte ou cherchez un lieu.');
+    };
+    if (!navigator.geolocation) return fallback('G\u00e9olocalisation indisponible.');
+    if (window.isSecureContext === false) return fallback('La g\u00e9olocalisation exige https ou localhost.');
+    navigator.geolocation.getCurrentPosition(p => setCenter(p.coords.latitude, p.coords.longitude, true),
+      e => fallback(e.code === 1 ? 'Autorisation refus\u00e9e par le navigateur.' : e.code === 3 ? 'D\u00e9lai d\u00e9pass\u00e9.' : 'Position indisponible.'), { timeout: 15000, maximumAge: 600000 });
+  },
+  searchPlace: async () => {
+    const q = $('#place').value.trim(); if (!q) return;
+    try { const j = await jget('https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=fr&q=' + encodeURIComponent(q), { retries: 0, timeout: 10000 }); if (!j[0]) return toast('Lieu introuvable.'); setCenter(+j[0].lat, +j[0].lon, true); } catch { toast('Recherche de lieu indisponible. Saisissez les coordonnées.'); }
+  },
+  pickTaxon: t => { const s = NEWC.sug[+t.dataset.i]; if (!NEWC.taxa.some(x => x.key === s.key)) NEWC.taxa.push({ key: s.key, label: cap(s.label), sci: s.sci, rank: s.rank, snd: 0 }); $('#chips').innerHTML = chipsHTML(NEWC); $('#sug').innerHTML = ''; updateModeHint(); },
+  rmTaxon: t => { NEWC.taxa = NEWC.taxa.filter(x => x.key !== +t.dataset.k); const c1 = $('#chips'), c2 = $('#tchips'); if (c1) c1.innerHTML = chipsHTML(NEWC); if (c2) c2.innerHTML = chipsHTML(NEWC); const tl = $('#tlist'); if (tl) tl.innerHTML = treeRows(); updateModeHint(); },
+  openTree: () => { TR = { focus: null, path: [], kids: ROOTS, offset: 0, end: true, filter: '' }; go('tree'); },
+  treeRoot: () => treeFocus(null),
+  treeGo: t => { const n = [...TR.path, ...TR.kids, TR.focus].find(x => x && String(x.key) === t.dataset.k); if (n) treeFocus(n); },
+  treeMore: async () => { busy('Chargement…'); try { await treeMore(); } catch { toast('Taxonomie indisponible.'); } busy(false); $('#tlist').innerHTML = treeRows(); },
+  treeSel: t => { const n = [...TR.path, ...TR.kids, TR.focus].find(x => x && String(x.key) === t.dataset.k); if (!n) return; const N = NEWC, i = N.taxa.findIndex(x => x.key === n.key); if (i >= 0) N.taxa.splice(i, 1); else N.taxa.push({ key: n.key, label: n.label, sci: n.sci, rank: n.rank, snd: 0 }); $('#tchips').innerHTML = chipsHTML(N); document.querySelector('.row.sp .btn.pri').textContent = `Valider (${N.taxa.length})`; },
+  treeDone: () => go('new'),
+  treeSearch: async () => {
+    const q = $('#ts').value.trim(); if (q.length < 2) return; const box = $('#tsr'); box.innerHTML = '<div class="spin"></div>';
+    try { const j = await jget(GBIF + 'species/search?' + qs({ q, datasetKey: BACKBONE, status: 'ACCEPTED', limit: 12 }), { retries: 1 }); TR.found = (j.results || []).filter(r => r.rank !== 'SPECIES' || true).map(mapNode).filter(r => r.key); box.innerHTML = TR.found.length ? '<div class="sug">' + TR.found.map((r, i) => `<button data-act="treeJump" data-i="${i}"><b>${esc(r.label)}</b> <span class="hint"><i>${esc(r.sci)}</i> · ${esc(RANK_FR[r.rank] || '')}</span></button>`).join('') + '</div>' : '<p class="hint">Aucun résultat.</p>'; }
+    catch { box.innerHTML = '<p class="hint">Recherche impossible.</p>'; }
+  },
+  treeJump: t => treeFocus(TR.found[+t.dataset.i]),
+  cover: showCover,
+  trainBad: async () => {
+    const card = T.cards[T.i]; if (!card) return; markBad(T.c, card.k, card.item, 'entrainement'); busy('Nouvelle image…');
+    try { const it = await nextMedia(T.c, card.k); if (!it) throw 0; card.item = it; card.asset = null; busy(false); viewTrain(); }
+    catch { busy(false); toast('Plus d\'autre image pour ce label : carte retirée.'); T.cards.splice(T.i, 1); viewTrain(); }
+  },
+  reportId: reportIdModal,
+  pickSug: t => { const k = +t.dataset.k, p = nameParts(k); $('#answer').value = p.big; submitAnswer([p.big, NAMES[k].sci, dn(k)]); },
+  saveReport: () => { const txt = $('#rtext').value.trim(); if (!txt) return toast('Décrivez brièvement le problème.'); saveReport($('#rtype').value, txt); toast('Signalement enregistré dans le journal.'); viewReport(); },
+  logCopy: async () => { const j = logJSON(false); try { await navigator.clipboard.writeText(j); toast('Journal copié.'); } catch { const ta = document.createElement('textarea'); ta.value = j; document.body.append(ta); ta.select(); try { document.execCommand('copy'); toast('Journal copié.'); } catch { toast('Copie impossible : utilisez Télécharger.'); } ta.remove(); } },
+  logDl: () => dl('fieldnaturalisttrainer-journal.json', logJSON(false)),
+  logDlFull: () => dl('fieldnaturalisttrainer-journal-complet.json', logJSON(true)),
+  logClear: () => { REPORTS.length = 0; ERRLOG.length = 0; LS.set('fnt.reports', REPORTS); try { localStorage.setItem('fnt.errlog', '[]'); } catch {} viewReport(); },
+  badReset: () => modal(`<h3>Réinitialiser la liste ?</h3><p class="hint">Les médias écartés pourront de nouveau être proposés.</p><button class="btn danger" data-m="y">Réinitialiser</button><button class="btn ghost" data-m="n">Annuler</button>`, a => { if (a === 'y') { BAD.items = {}; BAD.ds = {}; BAD.owner = {}; BAD.log = []; LS.set('fnt.bad', BAD); viewSettings(); } }),
+  setRank: t => { NEWC.rank = t.dataset.r; t.parentElement.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b === t)); },
+  setZone: t => { const N = NEWC; N.zk = t.dataset.z; N.country = N.wkt = undefined; N.zcode = ''; N.zlabel = ''; viewNew(); },
+  bigMode: () => { S.window = 30; S.coverage = 20; saveSettings(); toast('Mode grand groupe activé : 30 réponses, 20 % étudiés.'); render(); },
+  forceLevel: () => modal(`<h3>Valider ce niveau sans test ?</h3><p class="hint">Vous passez au palier suivant sans badge pour celui-ci.</p><button class="btn pri" data-m="y">Valider</button><button class="btn ghost" data-m="n">Annuler</button>`, a => { if (a !== 'y') return; const c = COURSES[V.id], lv = levelsOf(c); if (c.levelIdx >= lv.length - 1) c.completed = Date.now(); else { c.maxLevel = Math.max(c.maxLevel, c.levelIdx + 1); c.levelIdx++; } save(c); viewCourse(); }),
+  startCompare,
+  cmpOther: async () => { CP.pi = (CP.pi + 1) % CP.pairs.length; busy('Chargement de la paire…'); try { await loadPair(); busy(false); viewCompare(); } catch { busy(false); toast('Médias indisponibles.'); } },
+  cmpDrill: () => { CP.drill = { n: 0, ok: 0, total: 10, cur: null }; drillNext(); },
+  cmpBack: () => viewCompare(),
+  cmpNext: () => drillNext(),
+  cmpQuit: () => { const id = CP.c.id; CP = null; stopSound(); go('course', { id }); },
+  cmpPick: t => {
+    const d = CP.drill, cur = d.cur, c = CP.c; if (!cur || cur.done) return; cur.done = true;
+    const ok = +t.dataset.k === cur.k; d.n++; d.ok += ok ? 1 : 0;
+    const [a, b] = CP.pairs[CP.pi], id = [a, b].sort().join('-'); c.pairs = c.pairs || {}; const p = c.pairs[id] || (c.pairs[id] = { n: 0, ok: 0 }); p.n++; p.ok += ok ? 1 : 0; p.last = Date.now(); save(c);
+    document.querySelectorAll('[data-act=cmpPick]').forEach(b => { b.disabled = true; if (+b.dataset.k === cur.k) b.classList.add('pri'); });
+    $('#fb').innerHTML = `<div class="fb ${ok ? 'ok' : 'bad'}" role="status"><b>${ok ? 'Correct' : 'Raté'}</b><div class="namebox" style="text-align:left">${nameHTML(cur.k)}</div><button class="btn pri block" data-act="cmpNext">${d.n >= d.total ? 'Terminer' : 'Suivant'}</button></div>`;
+    $('#fb .btn').focus();
+  },
+  setMode: t => { NEWC.mode = t.dataset.m; document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', b === t)); updateModeHint(); },
+  findSpecies, createCourse,
+  setLevel: t => { const c = COURSES[V.id]; c.levelIdx = +t.dataset.i; save(c); viewCourse(); },
+  startTrain, startTest,
+  delAsk: () => modal(`<h3>Supprimer ce parcours ?</h3><p class="hint">La progression et les badges associés seront perdus.</p><button class="btn danger" data-m="del">Supprimer</button><button class="btn ghost" data-m="no">Annuler</button>`, a => { if (a === 'del') { delete COURSES[V.id]; saveCourses(); go('home'); } }),
+  trainNext: () => { T.i++; viewTrain(); },
+  trainPrev: () => { if (T.i) { T.i--; viewTrain(); } },
+  moreBlock: async () => { busy('Préparation du bloc…'); try { await buildChunk(T.ci + 1); busy(false); viewTrain(); } catch { busy(false); toast('Réseau indisponible.'); } },
+  toTest: () => { V.id = T.c.id; startTest(); },
+  play: () => curMedia && curMedia._play && curMedia._play(),
+  mic: toggleMic,
+  idk: () => submitAnswer([''], true),
+  flag: () => { clearTimeout(X.timer); const t = X.cur; if (!t || X.answered) return; markBad(X.c, t.k, t.item, 'test'); toast('Média écarté.'); X.upcoming = null; stopSound(); showTrial(); },
+  nextTrial: afterTrial,
+  retryTrial: () => showTrial(),
+  endTest: () => { clearTimeout(X.timer); const id = X.c.id; X = null; stopSound(); go('course', { id }); },
+  export: () => { const b = new Blob([JSON.stringify({ v: 2, settings: S, courses: COURSES, names: NAMES, bad: BAD, reports: REPORTS })], { type: 'application/json' }), a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'fieldnaturalisttrainer-sauvegarde.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); },
+  resetAsk: () => modal(`<h3>Tout effacer ?</h3><p class="hint">Parcours, progression, badges et réglages seront supprimés de ce navigateur.</p><button class="btn danger" data-m="y">Tout effacer</button><button class="btn ghost" data-m="n">Annuler</button>`, a => { if (a === 'y') { COURSES = {}; saveCourses(); Object.keys(NAMES).forEach(k => delete NAMES[k]); saveNames(); S = { ...DEFAULTS }; saveSettings(); go('home'); } })
+};
+app.addEventListener('click', e => { const t = e.target.closest('[data-act]'); if (t && ACT[t.dataset.act]) ACT[t.dataset.act](t, e); });
+tabs.addEventListener('click', e => { const t = e.target.closest('[data-act]'); if (t) ACT[t.dataset.act](t, e); });
+document.addEventListener('keydown', e => {
+  if ($('.overlay') || $('.zoom')) return;
+  const ae = document.activeElement, typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT');
+  const play = () => { const b = $('.listen'); if (b) { e.preventDefault(); b.click(); } };
+  if (V.view === 'test' && X) {
+    if (e.key === 'Enter') {
+      if (X.answered) { if (!ae || ae.id !== 'nextT') { e.preventDefault(); afterTrial(); } }
+      else if (ae && ae.id !== 'answer' && !(ae.tagName === 'TEXTAREA')) { e.preventDefault(); const v = $('#answer').value, al = X.voice && X.voice[0] === v ? X.voice : [v]; submitAnswer(al); }
+    } else if (e.altKey && e.code === 'KeyM') { e.preventDefault(); if ($('#micBtn') && !$('#micBtn').hidden) toggleMic(); }
+    else if (e.altKey && e.code === 'KeyJ' && !X.answered) { e.preventDefault(); ACT.idk(); }
+    else if (e.altKey && e.code === 'KeyI' && !X.answered) { e.preventDefault(); ACT.flag(); }
+    else if (e.altKey && e.code === 'KeyL') play();
+    else if (e.altKey && e.code === 'KeyZ') { const z = $('.zbtn'); if (z) { e.preventDefault(); z.click(); } }
+    else if (e.code === 'Space' && !typing && !(ae && ae.tagName === 'BUTTON')) play();
+    else if (e.key === 'Escape' && !typing) { e.preventDefault(); ACT.endTest(); }
+  }
+  if (V.view === 'train' && T) {
+    if (e.key === 'ArrowRight' && !typing) ACT.trainNext(); else if (e.key === 'ArrowLeft' && !typing) ACT.trainPrev();
+    else if (e.code === 'Space' && !(ae && ae.tagName === 'BUTTON')) play();
+    else if (e.altKey && e.code === 'KeyL') play();
+    else if (e.altKey && e.code === 'KeyI') { e.preventDefault(); ACT.trainBad(); }
+    else if (e.altKey && e.code === 'KeyZ') { const z = $('.zbtn'); if (z) { e.preventDefault(); z.click(); } }
+  }
+});
+render();
+</script>
+</body>
+</html>
