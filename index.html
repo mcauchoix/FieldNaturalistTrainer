@@ -200,7 +200,9 @@ const RANK_FR = { KINGDOM: 'règne', SUBKINGDOM: 'sous-règne', PHYLUM: 'embranc
 const LIFE = { ADULT: 'adulte', JUVENILE: 'juvénile', IMMATURE: 'immature', LARVA: 'larve', PUPA: 'nymphe/pupe', NYMPH: 'nymphe', EGG: 'œuf', IMAGO: 'imago', SUBADULT: 'subadulte', SPORE: 'spore', SEED: 'graine', EMBRYO: 'embryon' };
 const lifeFr = x => { const k = String(x || '').trim().toUpperCase().replace(/[ -]/g, '_'); return LIFE[k] || String(x || '').trim().toLowerCase(); };
 const BIOMES_FR = { 1: 'Forêts tropicales et subtropicales humides', 2: 'Forêts tropicales et subtropicales sèches', 3: 'Forêts de conifères tropicales et subtropicales', 4: 'Forêts tempérées de feuillus et mixtes', 5: 'Forêts tempérées de conifères', 6: 'Forêts boréales / taïga', 7: 'Prairies, savanes et fourrés tropicaux et subtropicaux', 8: 'Prairies, savanes et fourrés tempérés', 9: 'Prairies et savanes inondées', 10: 'Prairies et fourrés de montagne', 11: 'Toundra', 12: 'Forêts, bois et maquis méditerranéens', 13: 'Déserts et fourrés xériques', 14: 'Mangroves' };
-const DEFAULTS = { threshold: 90, trainShots: 4, blockSize: 10, sessionLen: 20, yearFrom: new Date().getFullYear() - 20, minRecords: 2, xcKey: '', zoneFirst: true, timeLimit: 0, testShots: 0, window: 0, coverage: 100, nameFirst: 'fr', autocomplete: true, specFmin: 0, specFmax: 0, timeExp: false, immatures: false };
+const DEFAULTS = { threshold: 90, trainShots: 4, blockSize: 10, sessionLen: 20, yearFrom: new Date().getFullYear() - 20, minRecords: 2, xcKey: '', zoneFirst: true, timeLimit: 0, testShots: 0, window: 0, coverage: 100, nameFirst: 'fr', autocomplete: true, specFmin: 0, specFmax: 0, timeExp: false, immatures: false, tts: 'off', slideSec: 3, slideRep: 2, ghRepo: '', pseudo: '', endpoint: '', share: false, autoShare: false, lastShare: 0 };
+const GH_REPO = '';      // optionnel : « proprietaire/depot » fixé par le mainteneur du site
+const COLLECT_URL = '';  // optionnel : URL du point de collecte (voir collecte-apps-script.gs)
 let S = { ...DEFAULTS, ...LS.get('fnt.settings', {}) };
 const saveSettings = () => LS.set('fnt.settings', S);
 let COURSES = LS.get('fnt.courses', {});
@@ -247,7 +249,8 @@ function circleWKT({ lat, lon, r }, n = 36) {
   }
   return 'POLYGON((' + pts.join(',') + '))';
 }
-const zoneGeo = z => z.country ? { country: z.country } : { geometry: z.wkt || circleWKT(z) };
+const FR_ALL = ['FR', 'GF', 'GP', 'MQ', 'RE', 'YT', 'NC', 'PF', 'PM', 'WF', 'TF', 'BL', 'MF'];
+const zoneGeo = z => z.country ? { country: z.country === 'FRALL' ? FR_ALL : z.country } : { geometry: z.wkt || circleWKT(z) };
 async function fetchAbundance(zone, taxonKey, extra = {}, field = 'speciesKey') {
   const out = [], lim = 500;
   for (let off = 0; off < lim * 12; off += lim) {
@@ -538,21 +541,42 @@ function soundPlan(sd) {
   }
   return { data, rate, pr, dur: n / sr * tx };
 }
-function playSound(sd, onProg) {
-  stopSound(); const tok = playToken, tx = S.timeExp ? 10 : 1;
+function playSound(sd, onProg, onEnd) {
+  stopSound(); const tok = playToken, tx = S.timeExp ? 10 : 1; let ended = false; const fin = () => { if (!ended && tok === playToken) { ended = true; onEnd && onEnd(); } };
   if (sd.data) {
     try {
       const c = actx(), plan = soundPlan(sd), ab = c.createBuffer(1, plan.data.length, plan.rate); ab.copyToChannel(plan.data, 0);
       const src = c.createBufferSource(); src.buffer = ab; src.playbackRate.value = plan.pr; src.connect(c.destination); const t0 = c.currentTime; src.start();
       stopSound.cur = () => { try { src.stop(); } catch {} };
-      const tick = () => { if (tok !== playToken) return; const p = (c.currentTime - t0) / plan.dur; onProg(clamp(p, 0, 1)); if (p < 1) requestAnimationFrame(tick); }; tick();
+      const tick = () => { if (tok !== playToken) return; const p = (c.currentTime - t0) / plan.dur; onProg(clamp(p, 0, 1)); if (p < 1) requestAnimationFrame(tick); else fin(); }; tick();
     } catch (e) { console.error(e); toast('Lecture impossible avec ces réglages.'); }
   } else if (sd.el) {
     sd.el.preservesPitch = false; sd.el.webkitPreservesPitch = false; sd.el.playbackRate = 1 / tx;
     sd.el.currentTime = 0; sd.el.play().catch(() => toast('Touchez « Écouter » pour lancer le son'));
     stopSound.cur = () => sd.el.pause();
-    const tick = () => { if (tok !== playToken) return; const p = sd.el.currentTime / (sd.el.duration || sd.dur); onProg(clamp(p, 0, 1)); if (!sd.el.ended) requestAnimationFrame(tick); }; tick();
+    const tick = () => { if (tok !== playToken) return; const p = sd.el.currentTime / (sd.el.duration || sd.dur); onProg(clamp(p, 0, 1)); if (!sd.el.ended) requestAnimationFrame(tick); else fin(); }; tick();
   }
+}
+/* ---------- synthèse vocale ---------- */
+const TTS_OK = typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
+let TTSV = null;
+function frVoice() { if (!TTS_OK) return null; if (TTSV) return TTSV; const vs = speechSynthesis.getVoices() || []; TTSV = vs.find(v => /^fr[-_]FR/i.test(v.lang)) || vs.find(v => /^fr/i.test(v.lang)) || null; return TTSV; }
+if (TTS_OK) { try { speechSynthesis.onvoiceschanged = () => { TTSV = null; }; } catch {} }
+function speak(text) {
+  return new Promise(res => {
+    if (!TTS_OK || !text) return res();
+    try {
+      const u = new SpeechSynthesisUtterance(text); u.lang = 'fr-FR'; u.rate = 0.9; const v = frVoice(); if (v) u.voice = v;
+      let done = false; const fin = () => { if (!done) { done = true; res(); } };
+      u.onend = fin; u.onerror = fin; setTimeout(fin, 7000 + text.length * 150); speechSynthesis.speak(u);
+    } catch { res(); }
+  });
+}
+const cancelSpeech = () => { if (TTS_OK) { try { speechSynthesis.cancel(); } catch {} } };
+async function speakNames(k, reps = 1, alive = () => true) {
+  const n = NAMES[k]; if (!n) return;
+  const parts = [n.fr || '', n.sci].filter(Boolean);
+  for (let r = 0; r < reps; r++) for (const p of parts) { if (!alive()) return; await speak(p); if (!alive()) return; await sleep(250); }
 }
 function attrHTML(item, showLink) {
   const parts = [];
@@ -618,7 +642,7 @@ function buildMedia(m, mode, item, opts = {}) {
       $('.fmax', box).onchange = e => { S.specFmax = Math.max(0, +e.target.value || 0); saveSettings(); redraw(); };
     }
     $('.tx', box).onchange = e => { S.timeExp = e.target.checked; saveSettings(); };
-    const play = () => playSound(m, p => { ph.style.left = (p * 100) + '%'; });
+    const play = () => playSound(m, p => { ph.style.left = (p * 100) + '%'; }, () => { if (box._ended) box._ended(); });
     box._play = play; $('.listen', box).onclick = () => play();
   }
   const a = document.createElement('div'); a.className = 'attr';
@@ -735,7 +759,7 @@ const ICONS = {
 };
 const ico = (n, s = 22) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true">${ICONS[n]}</svg>`;
 function go(view, p = {}) {
-  stopSound(); if (V.view === 'test' && view !== 'test') stopMic(true); if (V.view === 'new' && map) { try { map.remove(); } catch {} map = null; }
+  stopSound(); if (V.view === 'train' && view !== 'train') { AUTO++; cancelSpeech(); if (T) T.auto = false; } if (V.view === 'test' && view !== 'test') stopMic(true); if (V.view === 'new' && map) { try { map.remove(); } catch {} map = null; }
   V = { view, ...p }; render(); window.scrollTo(0, 0);
 }
 function renderTabs() {
@@ -822,6 +846,8 @@ const EXCL = new Set(['EU', 'UN', 'EZ', 'QO', 'ZZ', 'AC', 'CP', 'DG', 'EA', 'IC'
 function countryList() {
   const dnm = new Intl.DisplayNames(['fr'], { type: 'region' }), out = [];
   for (let a = 65; a <= 90; a++) for (let b = 65; b <= 90; b++) { const code = String.fromCharCode(a, b); if (EXCL.has(code)) continue; let n; try { n = dnm.of(code); } catch { continue; } if (n && n !== code && !out.some(o => o[1] === n)) out.push([code, n]); }
+  const fr = out.find(o => o[0] === 'FR'); if (fr) fr[1] = 'France métropolitaine (Corse incluse)';
+  out.push(['FRALL', 'France entière (métropole + outre-mer)']);
   return out.sort((x, y) => x[1].localeCompare(y[1], 'fr'));
 }
 const ECO = 'https://services.arcgis.com/P3ePLMYs2RVChkJx/ArcGIS/rest/services/Resolve_Ecoregions/FeatureServer/0/query';
@@ -1082,7 +1108,7 @@ async function facetCard(params) {
 }
 const countryName = cc => { try { return new Intl.DisplayNames(['fr'], { type: 'region' }).of(String(cc).toUpperCase()); } catch { return String(cc).toUpperCase(); } };
 async function zoneCountry(N, keys) {
-  if ((N.zk || 'circle') === 'country' && N.country) return String(N.country).toUpperCase();
+  if ((N.zk || 'circle') === 'country' && N.country) return N.country === 'FRALL' ? 'FR' : String(N.country).toUpperCase();
   const j = await jget(GBIF + 'occurrence/search?' + qs({ taxonKey: keys, ...zoneGeo(N), limit: 0, facet: 'country', facetLimit: 5 }), { retries: 1 });
   const f = (j.facets || [])[0], c = f && f.counts && f.counts[0];
   return c ? c.name : '';
@@ -1128,23 +1154,25 @@ async function runCountry(N, P, keys) {
   try {
     const cc = P.inv.cc || await zoneCountry(N, keys); if (!cc) throw new Error('pays introuvable');
     P.inv.cc = cc;
-    const base = { taxonKey: keys, country: cc, occurrenceStatus: 'PRESENT' }, mt = N.mode === 'sound' ? 'Sound' : 'StillImage';
+    const isFr = FR_ALL.includes(cc), wholeFr = isFr && !((N.zk || 'circle') === 'country' && N.country === 'FR'), base = { taxonKey: keys, country: isFr ? FR_ALL : cc, occurrenceStatus: 'PRESENT' }, mt = N.mode === 'sound' ? 'Sound' : 'StillImage';
     const [all, med, rec] = await Promise.all([facetCard(base), facetCard({ ...base, mediaType: mt }), facetCard({ ...base, hasCoordinate: 'true', hasGeospatialIssue: 'false', year: S.yearFrom + ',' + new Date().getFullYear() })]);
     P.inv.known = { cc, all, med, rec, yf: S.yearFrom };
-    if (cc === 'FR' && isMetroZone(N)) { P.inv.known.metro = await metroCount(N, P, keys, base); }
+    if (isFr && cc !== 'FR') P.inv.known.terr = await facetCard({ taxonKey: keys, country: cc, occurrenceStatus: 'PRESENT' });
+    if (isFr && isMetroZone(N)) { P.inv.known.metro = await metroCount(N, P, keys, { ...base, country: 'FR' }); }
   } catch (e) { console.error('pays', e); P.inv.known = { err: String(e.message || e) }; }
   const el = $('#trx'); if (el && V.view === 'preview') el.textContent = knownText(P.inv.known, NEWC && NEWC.mode);
 }
 const knownText = (t, mode) => {
   if (!t) return 'Nombre d’espèces connues dans le pays : calcul en cours…';
   if (t.err) return 'Nombre d’espèces connues dans le pays : indisponible (' + t.err + ').';
-  const f = x => x.toLocaleString('fr-FR'), fr = t.cc === 'FR', m = t.metro;
-  let txt = `${fr ? 'France entière, outre-mer inclus' : countryName(t.cc)} : ${f(t.all)} espèces de ce groupe connues dans GBIF (toutes années, toutes observations)${t.rec !== undefined ? `, dont ${f(t.rec)} observées depuis ${t.yf} avec coordonnées valides (mêmes critères que l’inventaire de la zone)` : ''} ; ${f(t.med)} ont ${mode === 'sound' ? 'au moins un son' : 'au moins une photo'} (toutes années).`;
+  const f = x => x.toLocaleString('fr-FR'), fr = FR_ALL.includes(t.cc), m = t.metro;
+  let txt = `${fr ? 'France entière (métropole + outre-mer : Guyane, Antilles, Réunion, Mayotte, Nouvelle-Calédonie, Polynésie, etc.)' : countryName(t.cc)} : ${f(t.all)} espèces de ce groupe connues dans GBIF (toutes années, toutes observations)${t.rec !== undefined ? `, dont ${f(t.rec)} observées depuis ${t.yf} avec coordonnées valides (mêmes critères que l’inventaire de la zone)` : ''} ; ${f(t.med)} ont ${mode === 'sound' ? 'au moins un son' : 'au moins une photo'} (toutes années).`;
   if (fr && m) {
     if (m.taxref) txt += ` France métropolitaine (Corse incluse), d’après TAXREF : ${m.taxref.partial ? '≥ ' : ''}${f(m.taxref.n)} espèces présentes.`;
     if (m.gbif !== undefined) txt += ` France métropolitaine, d’après GBIF (observations géoréférencées, Corse incluse) : ${f(m.gbif)} espèces${m.taxref ? '' : ' (TAXREF inaccessible depuis ce navigateur)'}.`;
     else if (!m.taxref) txt += ' Total métropolitain indisponible.';
-  } else if (fr) txt += ' Ce total inclut les territoires d’outre-mer.';
+  } else if (fr && t.terr !== undefined) txt += ` ${countryName(t.cc)} seule : ${f(t.terr)} espèces.`;
+  if (fr && !(m)) txt += ' Ce total inclut les territoires d’outre-mer.';
   return txt;
 };
 async function findSpecies() {
@@ -1285,6 +1313,7 @@ function viewCourse() {
     ${m.untrained ? `<p class="hint">${m.untrained} ${m.untrained > 1 ? U(c)[1] : U(c)[0]} du niveau à étudier en entraînement.</p>` : ''}
     <div class="row"><button class="btn ${needTrain ? 'pri' : ''} grow" data-act="startTrain">Entraînement${needTrain ? ' (' + (m.untrained || keysRaw.length) + ' à étudier)' : ' : revoir'}</button>
     <button class="btn ${needTrain ? '' : 'pri'} grow" data-act="startTest" ${Object.keys(c.trained).length < 2 ? 'disabled' : ''}>Test</button></div>
+    <button class="btn block" data-act="startSlide">▶ Diaporama automatique (sans action de votre part)</button>
     ${c.completed ? '<p class="chip ok">Parcours terminé : toutes les espèces sont maîtrisées. Continuez les tests pour entretenir vos acquis.</p>' : ''}</section>
   ${c.inv ? `<section class="card col"><h3>Inventaire GBIF</h3><p><b>${c.inv.species}</b> espèces inventoriées dans la zone${c.inv.withMedia !== undefined ? `, dont <b>${c.inv.withMedia}</b> avec ${c.mode === 'sound' ? 'au moins un son' : 'au moins une photo'}` : ''}.</p>${c.inv.known && !c.inv.known.err ? `<p>${esc(knownText(c.inv.known, c.mode))}</p>` : ''}${c.inv.outside ? `<p class="hint">${c.inv.outside} ${c.rank === 'species' ? 'espèces' : 'unités'} n’ont pas assez de médias dans la zone : leurs médias sont pris dans le pays ou dans le monde, et signalés « hors zone ».</p>` : ''}${c.cover ? `<details><summary>Biomes et écorégions de la zone</summary><div class="col" style="margin-top:10px">${coverHTML(c.cover)}</div></details>` : ''}</section>` : ''}
   <section class="card col"><h3>Pour aller plus loin</h3>
@@ -1302,11 +1331,11 @@ function viewCourse() {
 
 /* ---------- entraînement ---------- */
 let T = null;
-async function startTrain() {
+async function startTrain(auto) {
   const c = COURSES[V.id]; busy('Préparation…');
   try {
     const raw = levelKeysRaw(c), todo = raw.filter(k => !c.trained[k]), list = todo.length ? todo : raw;
-    T = { c, all: list, chunks: [], ci: 0, cards: [], i: 0, review: !todo.length };
+    T = { c, all: list, chunks: [], ci: 0, cards: [], i: 0, review: !todo.length, auto: auto === true, paused: false };
     for (let i = 0; i < list.length; i += S.blockSize) T.chunks.push(list.slice(i, i + S.blockSize));
     await buildChunk(0); busy(false); go('train');
   } catch (e) { busy(false); console.error(e); toast("Impossible de préparer l'entraînement (réseau ?)."); }
@@ -1338,7 +1367,7 @@ async function viewTrain() {
   <div class="bar"><i style="width:${(T.i) / T.cards.length * 100}%"></i></div>
   <div id="mslot" class="col"><div class="spin" style="margin:60px auto"></div></div><div id="nm"></div>
   <div class="row"><button class="btn ghost sm" data-act="trainBad">Média inutilisable</button><button class="btn ghost sm" data-act="reportId">Signaler une erreur d'identification</button></div>
-  <div class="row"><button class="btn grow" data-act="trainPrev" ${T.i ? '' : 'disabled'}>‹ Précédent</button><button class="btn pri grow" id="nextBtn" data-act="trainNext" disabled>Suivant ›</button></div>`;
+  ${T.auto ? `<div class="row"><button class="btn grow" data-act="trainPrev" ${T.i ? '' : 'disabled'} aria-label="Précédent">‹</button><button class="btn pri grow" id="autoBtn" data-act="autoPause">${T.paused ? '▶ Reprendre' : '⏸ Pause'}</button><button class="btn grow" id="nextBtn" data-act="trainNext" aria-label="Suivant">›</button></div><p class="hint" style="text-align:center">Diaporama automatique : chaque exemple est suivi de ${S.slideRep} lecture${S.slideRep > 1 ? 's' : ''} des noms (français puis latin). Espace : pause.</p>` : `<div class="row"><button class="btn grow" data-act="trainPrev" ${T.i ? '' : 'disabled'}>‹ Précédent</button><button class="btn pri grow" id="nextBtn" data-act="trainNext" disabled>Suivant ›</button></div>`}`;
   const my = ++curToken;
   try {
     const m = await ensureAsset(c, card);
@@ -1350,9 +1379,29 @@ async function viewTrain() {
     if (c.mode === 'sound') { const sl = $('.nmslot', mv); if (sl) sl.append($('#nm')); }
     hints();
     setTimeout(() => { const b = $('#nextBtn'); if (b) b.disabled = false; }, 900);
-    if (c.mode === 'sound') mv._play && mv._play();
+    if (TTS_OK) { const nb = $('#nm .namebox'); if (nb) nb.insertAdjacentHTML('beforeend', `<button class="btn ghost sm" data-act="say" data-k="${card.k}" type="button" style="margin-top:6px">🔊 Prononcer</button>`); }
+    if (c.mode === 'sound') { mv._endP = new Promise(r => { mv._ended = r; }); if (!T.auto && S.tts !== 'off') { const k0 = card.k, tk = my; mv._endP.then(() => { if (tk === curToken && V.view === 'train') speakNames(k0, 1, () => tk === curToken); }); } mv._play && !T.paused && mv._play(); }
+    else if (!T.auto && S.tts !== 'off') { const k0 = card.k, tk = my; setTimeout(() => { if (tk === curToken && V.view === 'train') speakNames(k0, 1, () => tk === curToken); }, 500); }
+    if (T.auto) { if (T.paused) { stopSound(); } else autoRun(my, mv, card); }
     const nx = T.cards[T.i + 1]; if (nx && c.mode === 'photo' && !nx.asset) ensureAsset(c, nx).catch(() => {});
   } catch (e) { if (my === curToken) { toast('Média indisponible, carte ignorée.'); T.cards.splice(T.i, 1); viewTrain(); } }
+}
+let AUTO = 0;
+async function autoRun(my, mv, card) {
+  const run = ++AUTO, c = T.c;
+  const alive = () => run === AUTO && T && T.auto && !T.paused && V.view === 'train' && my === curToken;
+  const wait = async ms => { for (let left = ms; left > 0; left -= 120) { if (!alive()) return false; await sleep(Math.min(120, left)); } return alive(); };
+  if (c.mode === 'sound') { await Promise.race([mv._endP, sleep(30000)]); if (!alive()) return; }
+  else if (!(await wait(S.slideSec * 1000))) return;
+  if (!(await wait(300))) return;
+  if (TTS_OK) await speakNames(card.k, Math.max(1, S.slideRep | 0), alive); else if (!(await wait(3500))) return;
+  if (!(await wait(700))) return;
+  T.i++; viewTrain();
+}
+function slideEnd() {
+  const c = T.c;
+  app.innerHTML = `<div class="card col"><h2>Diaporama terminé</h2><p>${T.all.length} ${U(c)[1]} présenté${T.all.length > 1 ? 's' : ''}, avec ${S.slideRep} lecture${S.slideRep > 1 ? 's' : ''} des noms après chaque exemple.</p>
+  <button class="btn pri block" data-act="toTest">Passer au test</button><button class="btn block" data-act="startSlide">Rejouer le diaporama</button><button class="btn ghost block" data-act="openCourse" data-id="${esc(c.id)}">Retour au parcours</button></div>`;
 }
 let curToken = 0;
 async function ensureAsset(c, card) {
@@ -1365,6 +1414,7 @@ async function ensureAsset(c, card) {
 }
 function trainChunkDone() {
   const c = T.c, more = T.ci < T.chunks.length - 1, m = mastery(c);
+  if (T.auto) { if (!more) { T.auto = false; return slideEnd(); } busy('Préparation du bloc suivant…'); buildChunk(T.ci + 1).then(() => { busy(false); viewTrain(); }).catch(() => { busy(false); T.auto = false; toast('Réseau indisponible.'); slideEnd(); }); return; }
   app.innerHTML = `<div class="card col"><h2>Bloc terminé</h2><p>${T.chunks[T.ci].length} ${U(c)[1]} étudié${T.chunks[T.ci].length > 1 ? 's' : ''}${more ? `, il en reste ${T.chunks.slice(T.ci + 1).reduce((a, x) => a + x.length, 0)} à étudier dans ce niveau.` : '.'}</p>
   <p class="hint">Conseil : testez-vous maintenant. Se rappeler une espèce pendant le test consolide davantage que la revoir.</p>
   ${more ? '<button class="btn block" data-act="moreBlock">Bloc suivant</button>' : ''}
@@ -1522,6 +1572,7 @@ function submitAnswer(texts, idk, why) {
   updateMeter();
   if (!X.lvlUp && !sessionOver()) X.upcoming = planTrial().catch(() => null).then(v => v || undefined);
   $('#nextT').focus({ preventScroll: true }); hints();
+  if (S.tts === 'all' && X.cur) { cancelSpeech(); speakNames(X.cur.k, 1); }
 }
 async function afterTrial() {
   const c = X.c;
@@ -1545,6 +1596,7 @@ function levelUp(c, bs) {
     <button class="btn pri" data-m="go">${last ? 'Retour au parcours' : 'Étudier les nouvelles espèces'}</button>`, () => { X = null; V.id = c.id; if (last) go('course', { id: c.id }); else { V.id = c.id; startTrain(); } });
 }
 function sessionSummary() {
+  if (S.share && S.autoShare) sendPerf(true);
   const c = X.c, acc = X.sessN ? Math.round(X.sessOK / X.sessN * 100) : 0, m = mastery(c);
   modal(`<h3>Session terminée</h3><div class="tiles"><div class="tile"><b>${acc} %</b><span>${X.sessOK}/${X.sessN} réponses</span></div><div class="tile"><b>${Math.round(m.acc * 100)} %</b><span>maîtrise (cible ${S.threshold} %)</span></div></div>
     <button class="btn pri" data-m="more">Continuer</button><button class="btn" data-m="prog">Voir ma progression</button><button class="btn ghost" data-m="quit">Quitter</button>`,
@@ -1661,7 +1713,12 @@ function viewReport() {
   <div class="row"><button class="btn grow" data-act="logCopy">Copier le journal</button><button class="btn grow" data-act="logDl">Télécharger</button></div>
   <button class="btn ghost" data-act="logDlFull">Télécharger avec la sauvegarde complète</button>
   <button class="btn ghost danger" data-act="logClear">Vider le journal</button>
-  <p class="hint">Pour faire corriger un bug : copiez ou téléchargez le journal et transmettez-le avec votre demande.</p></section>`;
+  <p class="hint">Pour faire corriger un bug : copiez ou téléchargez le journal et transmettez-le avec votre demande.</p></section>
+  ${location.protocol !== 'file:' && REPORTS.length ? `<section class="card col"><h3>Envoyer sur GitHub</h3>
+  <label class="f">Dépôt GitHub<input type="text" id="ghrepo" value="${esc(ghRepoGuess())}" placeholder="proprietaire/depot"></label>
+  <label class="f">Signalement<select id="ghsel">${REPORTS.slice(-8).reverse().map(r => `<option value="${esc(r.id)}">${esc((r.type === 'bug' ? 'Bug' : r.type === 'id' ? 'Identification' : 'Idée') + ' · ' + new Date(r.t).toLocaleString('fr-FR') + ' · ' + String(r.text || '').slice(0, 40))}</option>`).join('')}</select></label>
+  <button class="btn pri block" data-act="ghIssue">Créer une issue GitHub pré-remplie</button>
+  <p class="hint">Ouvre GitHub avec le texte déjà rempli ; vous validez vous-même (compte GitHub requis). L’application n’envoie rien en arrière-plan et ne stocke aucun jeton.</p></section>` : ''}`;
 }
 function currentMediaCtx() {
   if (V.view === 'test' && X && X.cur) return { c: X.c, k: X.cur.k, item: X.cur.item, where: 'test' };
@@ -1769,10 +1826,66 @@ function viewMethod() {
 }
 
 /* ---------- réglages ---------- */
+/* ---------- partage des performances (optionnel) ---------- */
+const shareURL = () => (S.endpoint || COLLECT_URL || '').trim();
+function perfPayload() {
+  const courses = Object.values(COURSES).map(c => {
+    const sci = [], idx = {}, si = k => { if (!(k in idx)) { idx[k] = sci.length; sci.push((NAMES[k] && NAMES[k].sci) || String(k)); } return idx[k]; };
+    return { id: c.id, title: courseTitle(c), group: c.taxon.label, zone: { kind: c.zone.kind, label: c.zone.label || '', cc: c.zone.cc || '' }, mode: c.mode, rank: c.rank || 'species', nUnits: c.species.length, level: c.levelIdx, maxLevel: c.maxLevel, badges: c.badges || {}, nTrials: c.trials.length,
+      units: sci, trials: c.trials.slice(-3000).map(t => [t[0], t[1], si(t[2]), t[3], t[6] || 0]) };
+  });
+  return { v: 1, app: 'FieldNaturalistTrainer', pseudo: String(S.pseudo || '').trim().slice(0, 24), sentAt: new Date().toISOString(), courses };
+}
+function shareCardHTML() {
+  return `<section class="card col"><h3>Partage de mes performances (optionnel)</h3>
+  <p class="hint">Permet d’envoyer vos statistiques d’apprentissage, sous un pseudo, vers une base commune (par exemple pour comparer des groupes ou suivre une formation). Rien n’est envoyé sans votre accord explicite ci-dessous.</p>
+  <label class="f">Pseudo<input type="text" id="s_pseudo" maxlength="24" value="${esc(S.pseudo)}" placeholder="ex. Martin42" autocomplete="off"></label>
+  <label class="f">Adresse du point de collecte (https)<input type="url" id="s_endp" value="${esc(S.endpoint || COLLECT_URL)}" placeholder="https://script.google.com/macros/s/…/exec"><small>Fournie par l’organisateur. Voir le fichier collecte-apps-script.gs pour en créer un.</small></label>
+  <label class="f" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" id="s_share" ${S.share ? 'checked' : ''} style="width:22px;height:22px"> J’accepte d’envoyer mes statistiques avec ce pseudo</label>
+  <label class="f" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" id="s_ashare" ${S.autoShare ? 'checked' : ''} style="width:22px;height:22px"> Envoyer automatiquement à la fin de chaque session de test</label>
+  <div class="row"><button class="btn grow" data-act="sharePreview">Voir ce qui sera envoyé</button><button class="btn pri grow" data-act="shareNow">Envoyer maintenant</button></div>
+  <p class="hint">Contenu envoyé : pseudo, nom et zone (libellé seulement, sans coordonnées) de vos parcours, niveau atteint, badges, et la liste de vos réponses (date, niveau, espèce, juste ou faux, temps de réponse). ${S.lastShare ? 'Dernier envoi : ' + new Date(S.lastShare).toLocaleString('fr-FR') + '.' : ''}</p></section>`;
+}
+function bindShare() {
+  const b = (id, key, chk) => { const el = $('#' + id); if (el) el.onchange = () => { S[key] = chk ? el.checked : el.value.trim(); saveSettings(); }; };
+  b('s_pseudo', 'pseudo'); b('s_endp', 'endpoint'); b('s_share', 'share', true); b('s_ashare', 'autoShare', true);
+}
+async function sendPerf(silent) {
+  const url = shareURL(), ps = String(S.pseudo || '').trim();
+  if (!S.share) return silent || toast('Cochez d’abord votre accord pour l’envoi.');
+  if (ps.length < 2) return silent || toast('Choisissez un pseudo (2 caractères minimum).');
+  if (!/^https:\/\//i.test(url)) return silent || toast('Adresse du point de collecte absente ou non sécurisée (https).');
+  try {
+    await fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(perfPayload()) });
+    S.lastShare = Date.now(); saveSettings(); silent || toast('Envoyé (le serveur ne renvoie pas de confirmation lisible).');
+  } catch (e) { logErr('partage', String(e.message || e)); silent || toast('Envoi impossible (réseau ?).'); }
+}
+/* ---------- signalement vers GitHub ---------- */
+function ghRepoGuess() {
+  if (S.ghRepo) return S.ghRepo; if (GH_REPO) return GH_REPO;
+  const h = location.hostname; if (/\.github\.io$/i.test(h)) { const o = h.replace(/\.github\.io$/i, ''), seg = location.pathname.split('/').filter(Boolean)[0]; return o + '/' + (seg && !/\.html?$/i.test(seg) ? seg : h); }
+  return '';
+}
+async function ghIssue(id) {
+  const repo = ($('#ghrepo') ? $('#ghrepo').value : ghRepoGuess()).trim();
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return toast('Indiquez le dépôt GitHub sous la forme proprietaire/depot.');
+  S.ghRepo = repo; saveSettings();
+  const r = REPORTS.find(x => x.id === id) || REPORTS[REPORTS.length - 1]; if (!r) return toast('Enregistrez d’abord un signalement.');
+  const full = JSON.stringify(r, null, 1);
+  try { await navigator.clipboard.writeText(full); } catch {}
+  const sn = r.snapshot || {}, kind = r.type === 'bug' ? 'Bug' : r.type === 'id' ? 'Erreur d’identification' : 'Suggestion';
+  let body = `**Type** : ${kind}\n\n**Description**\n${r.text || ''}\n\n**Contexte**\n- Écran : ${sn.view || ''}\n- Parcours : ${(sn.course && sn.course.id) || ''}\n- Média : ${JSON.stringify(sn.currentTrial || sn.currentCard || r.media || '').slice(0, 700)}\n- Navigateur : ${r.ua}\n- Page : ${r.page}\n\n**Dernières erreurs techniques**\n\`\`\`\n${(r.errors || []).slice(-4).map(e => e.msg + ' ' + (e.extra || '').slice(0, 200)).join('\n')}\n\`\`\`\n\n_Journal complet copié dans le presse-papiers : collez-le ci-dessous si besoin._\n`;
+  const mk = b => `https://github.com/${repo}/issues/new?title=${encodeURIComponent('[' + kind + '] ' + String(r.text || '').slice(0, 70))}&body=${encodeURIComponent(b)}&labels=${encodeURIComponent(r.type === 'bug' ? 'bug' : r.type === 'id' ? 'identification' : 'enhancement')}`;
+  let url = mk(body); while (url.length > 7000 && body.length > 300) { body = body.slice(0, Math.floor(body.length * 0.8)); url = mk(body); }
+  window.open(url, '_blank', 'noopener'); toast('Page GitHub ouverte. Journal complet copié : collez-le dans l’issue si utile.');
+}
 function viewSettings() {
   app.innerHTML = `<h2>Réglages</h2>
   <section class="card col">
   <label class="f">Nom affiché en grand<select id="s_nf"><option value="fr" ${S.nameFirst !== 'latin' ? 'selected' : ''}>Nom français (latin en dessous)</option><option value="latin" ${S.nameFirst === 'latin' ? 'selected' : ''}>Nom scientifique (français en dessous)</option></select></label>
+  <label class="f">Nom prononcé (synthèse vocale)<select id="s_tts"><option value="off" ${S.tts === 'off' ? 'selected' : ''}>Désactivé</option><option value="train" ${S.tts === 'train' ? 'selected' : ''}>Pendant l’entraînement</option><option value="all" ${S.tts === 'all' ? 'selected' : ''}>Entraînement et correction du test</option></select><small>${TTS_OK ? 'Utilise la voix française de votre appareil (nom français, puis nom latin). Un bouton « Prononcer » est aussi disponible pendant l’entraînement.' : 'La synthèse vocale n’est pas disponible dans ce navigateur.'}</small></label>
+  <label class="f">Diaporama : durée d’affichage de chaque image (s)<input type="number" id="s_ssec" value="${S.slideSec}" min="1" max="15"><small>Pour les sons, l’extrait est joué en entier.</small></label>
+  <label class="f">Diaporama : répétitions des noms (français puis latin) après chaque exemple<input type="number" id="s_srep" value="${S.slideRep}" min="1" max="4"></label>
   <label class="f" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" id="s_im" ${S.immatures ? 'checked' : ''} style="width:22px;height:22px"> Inclure les larves, nymphes, juvéniles et autres stades immatures<small>Par défaut, quand GBIF indique le stade de vie, seuls les adultes (imagos) sont utilisés. Les médias sans information de stade restent utilisables. Si une espèce n’a aucun adulte, ses stades immatures sont utilisés en dernier recours.</small></label>
   <label class="f" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" id="s_ac" ${S.autocomplete ? 'checked' : ''} style="width:22px;height:22px"> Autocomplétion pendant le test (avec les labels du parcours)</label>
   <label class="f">Seuil de réussite : <span class="mono" id="v1">${S.threshold} %</span><input type="range" id="s_thr" min="60" max="100" value="${S.threshold}"></label>
@@ -1795,6 +1908,9 @@ function viewSettings() {
   bind('s_thr', 'threshold', 'v1', v => v + ' %'); bind('s_shots', 'trainShots', 'v2', v => v); bind('s_blk', 'blockSize', 'v3', v => v); bind('s_ses', 'sessionLen', 'v4', v => v);
   bind('s_year', 'yearFrom'); bind('s_ts', 'testShots'); bind('s_tl', 'timeLimit'); bind('s_win', 'window'); bind('s_cov', 'coverage', 'v5', v => v + ' %'); bind('s_min', 'minRecords'); bind('s_xc', 'xcKey', null, null, false);
   $('#s_nf').onchange = e => { S.nameFirst = e.target.value; saveSettings(); };
+  $('#s_tts').onchange = e => { S.tts = e.target.value; saveSettings(); };
+  bind('s_ssec', 'slideSec'); bind('s_srep', 'slideRep');
+  app.insertAdjacentHTML('beforeend', shareCardHTML()); bindShare();
   $('#s_im').onchange = e => { S.immatures = e.target.checked; saveSettings(); };
   $('#s_ac').onchange = e => { S.autocomplete = e.target.checked; saveSettings(); };
   $('#s_zone').onchange = e => { S.zoneFirst = e.target.checked; saveSettings(); };
@@ -1845,6 +1961,9 @@ const ACT = {
   reportId: reportIdModal,
   pickSug: t => { const k = +t.dataset.k, p = nameParts(k); $('#answer').value = p.big; submitAnswer([p.big, NAMES[k].sci, dn(k)]); },
   saveReport: () => { const txt = $('#rtext').value.trim(); if (!txt) return toast('Décrivez brièvement le problème.'); saveReport($('#rtype').value, txt); toast('Signalement enregistré dans le journal.'); viewReport(); },
+  ghIssue: () => ghIssue($('#ghsel') && $('#ghsel').value),
+  sharePreview: () => { const j = JSON.stringify(perfPayload(), null, 1); modal(`<h3>Données qui seraient envoyées</h3><p class="hint">${perfPayload().courses.length} parcours · ${j.length.toLocaleString('fr-FR')} caractères. Extrait :</p><pre style="max-height:40vh;overflow:auto;font-size:.72rem;white-space:pre-wrap">${esc(j.slice(0, 1800))}${j.length > 1800 ? '\n…' : ''}</pre><button class="btn pri" data-m="ok">Fermer</button>`); },
+  shareNow: () => sendPerf(false),
   logCopy: async () => { const j = logJSON(false); try { await navigator.clipboard.writeText(j); toast('Journal copié.'); } catch { const ta = document.createElement('textarea'); ta.value = j; document.body.append(ta); ta.select(); try { document.execCommand('copy'); toast('Journal copié.'); } catch { toast('Copie impossible : utilisez Télécharger.'); } ta.remove(); } },
   logDl: () => dl('fieldnaturalisttrainer-journal.json', logJSON(false)),
   logDlFull: () => dl('fieldnaturalisttrainer-journal-complet.json', logJSON(true)),
@@ -1871,7 +1990,10 @@ const ACT = {
   setMode: t => { NEWC.mode = t.dataset.m; document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', b === t)); updateModeHint(); },
   findSpecies, createCourse,
   setLevel: t => { const c = COURSES[V.id]; c.levelIdx = +t.dataset.i; save(c); viewCourse(); },
-  startTrain, startTest,
+  startTrain: () => startTrain(false), startTest,
+  startSlide: () => { if (T && T.c && V.view !== 'course') V.id = T.c.id; startTrain(true); },
+  autoPause: () => { if (!T || !T.auto) return; T.paused = !T.paused; if (T.paused) { AUTO++; stopSound(); cancelSpeech(); const b = $('#autoBtn'); if (b) b.textContent = '▶ Reprendre'; } else viewTrain(); },
+  say: t => { cancelSpeech(); speakNames(+t.dataset.k, 1); },
   delAsk: () => modal(`<h3>Supprimer ce parcours ?</h3><p class="hint">La progression et les badges associés seront perdus.</p><button class="btn danger" data-m="del">Supprimer</button><button class="btn ghost" data-m="no">Annuler</button>`, a => { if (a === 'del') { delete COURSES[V.id]; saveCourses(); go('home'); } }),
   trainNext: () => { T.i++; viewTrain(); },
   trainPrev: () => { if (T.i) { T.i--; viewTrain(); } },
@@ -1906,7 +2028,8 @@ document.addEventListener('keydown', e => {
     else if (e.key === 'Escape' && !typing) { e.preventDefault(); ACT.endTest(); }
   }
   if (V.view === 'train' && T) {
-    if (e.key === 'ArrowRight' && !typing) ACT.trainNext(); else if (e.key === 'ArrowLeft' && !typing) ACT.trainPrev();
+    if (T.auto && e.code === 'Space' && !typing) { e.preventDefault(); ACT.autoPause(); }
+    else if (e.key === 'ArrowRight' && !typing) ACT.trainNext(); else if (e.key === 'ArrowLeft' && !typing) ACT.trainPrev();
     else if (e.code === 'Space' && !(ae && ae.tagName === 'BUTTON')) play();
     else if (e.altKey && e.code === 'KeyL') play();
     else if (e.altKey && e.code === 'KeyI') { e.preventDefault(); ACT.trainBad(); }
