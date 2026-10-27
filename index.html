@@ -200,7 +200,7 @@ const RANK_FR = { KINGDOM: 'règne', SUBKINGDOM: 'sous-règne', PHYLUM: 'embranc
 const LIFE = { ADULT: 'adulte', JUVENILE: 'juvénile', IMMATURE: 'immature', LARVA: 'larve', PUPA: 'nymphe/pupe', NYMPH: 'nymphe', EGG: 'œuf', IMAGO: 'imago', SUBADULT: 'subadulte', SPORE: 'spore', SEED: 'graine', EMBRYO: 'embryon' };
 const lifeFr = x => { const k = String(x || '').trim().toUpperCase().replace(/[ -]/g, '_'); return LIFE[k] || String(x || '').trim().toLowerCase(); };
 const BIOMES_FR = { 1: 'Forêts tropicales et subtropicales humides', 2: 'Forêts tropicales et subtropicales sèches', 3: 'Forêts de conifères tropicales et subtropicales', 4: 'Forêts tempérées de feuillus et mixtes', 5: 'Forêts tempérées de conifères', 6: 'Forêts boréales / taïga', 7: 'Prairies, savanes et fourrés tropicaux et subtropicaux', 8: 'Prairies, savanes et fourrés tempérés', 9: 'Prairies et savanes inondées', 10: 'Prairies et fourrés de montagne', 11: 'Toundra', 12: 'Forêts, bois et maquis méditerranéens', 13: 'Déserts et fourrés xériques', 14: 'Mangroves' };
-const DEFAULTS = { threshold: 90, trainShots: 4, blockSize: 10, sessionLen: 20, yearFrom: new Date().getFullYear() - 20, minRecords: 2, xcKey: '', zoneFirst: true, timeLimit: 0, testShots: 0, window: 0, coverage: 100, nameFirst: 'fr', autocomplete: true, specFmin: 0, specFmax: 0, timeExp: false };
+const DEFAULTS = { threshold: 90, trainShots: 4, blockSize: 10, sessionLen: 20, yearFrom: new Date().getFullYear() - 20, minRecords: 2, xcKey: '', zoneFirst: true, timeLimit: 0, testShots: 0, window: 0, coverage: 100, nameFirst: 'fr', autocomplete: true, specFmin: 0, specFmax: 0, timeExp: false, immatures: false };
 let S = { ...DEFAULTS, ...LS.get('fnt.settings', {}) };
 const saveSettings = () => LS.set('fnt.settings', S);
 let COURSES = LS.get('fnt.courses', {});
@@ -325,6 +325,7 @@ async function loadMedia(c, k) {
   })();
   return p.loading;
 }
+const IMM = /juven|larv|nymph|pupa|pupe|egg|embryo|immature|sub-?adult|chick|fledg|nestling|tadpole|seedling|sapling|zygote|gamet|instar|caterpillar|neonate|young|\bcub\b|\bcalf\b|pullus/i;
 async function loadGbifMedia(c, k, p, type) {
   const base = { [RANKP[c.rank || 'species']]: k, mediaType: type, occurrenceStatus: 'PRESENT' };
   const need = type === 'Sound' ? 4 : 12, cc = (c.zone && (c.zone.country || (c.zone.cc && c.zone.cc.length === 2 && c.zone.cc)) || '').toUpperCase();
@@ -354,7 +355,7 @@ async function loadGbifMedia(c, k, p, type) {
     if (type === 'StillImage' && m.type !== 'StillImage') return;
     if (type === 'StillImage' && (r.datasetKey === XC_DS || /xeno-canto|spectro|\/ffts\/|sono\.|sonogram/i.test(String(m.identifier) + ' ' + (r.datasetName || '') + ' ' + (r.institutionCode || '')))) return;
     items.push({ id: 'g' + r.key + '_' + i, occ: r.key, url: type === 'StillImage' ? fixImg(m.identifier) : m.identifier,
-      creator: m.creator || m.rightsHolder || r.recordedBy || '', lic: shortLic(m.license || r.license), licRaw: m.license || r.license, src: r.datasetName || '', ds: r.datasetKey || '', dsn: r.datasetName || '', life: r.lifeStage || '', sp: r.species || '', scope: p.scope });
+      creator: m.creator || m.rightsHolder || r.recordedBy || '', lic: shortLic(m.license || r.license), licRaw: m.license || r.license, src: r.datasetName || '', ds: r.datasetKey || '', dsn: r.datasetName || '', life: r.lifeStage || '', imm: IMM.test(r.lifeStage || ''), sp: r.species || '', scope: p.scope });
   }));
   const open = items.filter(i => okLic(i.licRaw));
   if (open.length >= 5) items = open;
@@ -384,9 +385,10 @@ function markSeen(c, k, id) { const a = c.seen[k] || (c.seen[k] = []); if (!a.in
 const songCall = t => /song/i.test(t || '') ? 'song' : /call/i.test(t || '') ? 'call' : 'autre';
 async function nextMedia(c, k, avoid = new Set(), train = false) {
   const p = poolOf(c, k); const seen = new Set(c.seen[k] || []);
-  const fresh = () => p.items.filter(i => !seen.has(i.id) && !p.bad.has(i.id) && !BAD.items[i.id]);
+  const fresh = (imm = S.immatures) => p.items.filter(i => !seen.has(i.id) && !p.bad.has(i.id) && !BAD.items[i.id] && (imm || !i.imm));
   let cand = fresh();
   if (cand.length < 3 && !p.exhausted) { try { await loadMedia(c, k); } catch (e) { if (!p.items.length) throw e; } cand = fresh(); }
+  if (!cand.length && p.exhausted) cand = fresh(true);
   let item = null, reused = false;
   if (cand.length) {
     const pref = cand.filter(i => !avoid.has(i.creator || i.id));
@@ -803,6 +805,7 @@ function viewNew() {
     <p class="hint" id="modeHint"></p></section>
   <button class="btn pri block" data-act="findSpecies">Chercher les espèces dans GBIF</button>`;
   updateModeHint();
+  if (N.cover) mountCoverMap($('#cover'), N.cover);
   if (zk === 'circle') {
     initMap();
     $('#rad').oninput = e => { N.r = +e.target.value; $('#rv').textContent = N.r + ' km'; if (mapCircle) mapCircle.setRadius(N.r * 1000); N.cover = null; };
@@ -825,9 +828,14 @@ const ECO = 'https://services.arcgis.com/P3ePLMYs2RVChkJx/ArcGIS/rest/services/R
 let ECOLIST = LS.get('fnt.ecolist', null);
 async function loadEcoList() {
   if (ECOLIST && ECOLIST.length) return ECOLIST;
-  const j = await jget(ECO + '?' + qs({ f: 'json', where: '1=1', outFields: 'ECO_ID,ECO_NAME,BIOME_NUM,BIOME_NAME', returnGeometry: 'false', resultRecordCount: 2000, orderByFields: 'ECO_NAME' }), { timeout: 30000 });
+  const feats = [];
+  for (let off = 0; off < 3000; off += 500) {
+    const j = await jget(ECO + '?' + qs({ f: 'json', where: '1=1', outFields: 'ECO_ID,ECO_NAME,BIOME_NUM,BIOME_NAME', returnGeometry: 'false', resultOffset: off, resultRecordCount: 500, orderByFields: 'ECO_NAME' }), { timeout: 30000 });
+    if (j.error) throw new Error(j.error.message || 'erreur du service');
+    feats.push(...(j.features || [])); if (!(j.features || []).length || (!j.exceededTransferLimit && j.features.length < 500)) break;
+  }
   const seen = new Set(); ECOLIST = [];
-  (j.features || []).forEach(f => { const a = f.attributes; if (a && a.ECO_NAME && a.ECO_NAME !== 'Rock and Ice' && a.BIOME_NUM < 90 && !seen.has(a.ECO_ID)) { seen.add(a.ECO_ID); ECOLIST.push({ id: a.ECO_ID, n: a.ECO_NAME, b: a.BIOME_NUM, bn: a.BIOME_NAME }); } });
+  feats.forEach(f => { const a = f.attributes; if (a && a.ECO_NAME && a.ECO_NAME !== 'Rock and Ice' && a.BIOME_NUM < 90 && !seen.has(a.ECO_ID)) { seen.add(a.ECO_ID); ECOLIST.push({ id: a.ECO_ID, n: a.ECO_NAME, b: a.BIOME_NUM, bn: a.BIOME_NAME }); } });
   if (!ECOLIST.length) throw new Error('liste vide');
   LS.set('fnt.ecolist', ECOLIST); return ECOLIST;
 }
@@ -848,15 +856,35 @@ async function loadZoneList(zk) {
     else { const j = await jget('https://geo.api.gouv.fr/regions?fields=nom,code', { retries: 1 }); list = j.map(x => [x.code, x.nom]).sort((a, b) => a[1].localeCompare(b[1], 'fr')); }
     sel.innerHTML = '<option value="">Choisir…</option>' + list.map(([c, n]) => `<option value="${esc(c)}" data-n="${esc(n)}" ${N.zcode === c ? 'selected' : ''}>${esc(n)}</option>`).join('');
     sel.onchange = () => pickZone(zk, sel.value, sel.selectedOptions[0].dataset.n || '');
-  } catch (e) { console.error('liste zones', e); sel.innerHTML = '<option value="">Liste indisponible (réseau ?)</option>'; }
+  } catch (e) { console.error('liste zones', e); sel.innerHTML = '<option value="">Liste indisponible : ' + esc(String(e.message || e).slice(0, 80)) + '</option>'; const h = $('#zhint'); if (h) h.innerHTML = 'Liste indisponible. <button class="btn sm" type="button" data-act="setZone" data-z="' + zk + '">Réessayer</button>'; }
+}
+async function wktOK(w) { try { await jget(GBIF + 'occurrence/search?' + qs({ geometry: w, limit: 0 }), { retries: 0, timeout: 20000 }); return true; } catch (e) { console.warn('wkt refusé', e.message); return false; } }
+function hullWKT(g) {
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  const area = r => Math.abs(r.reduce((a, p, i) => { const q = r[(i + 1) % r.length]; return a + (p[0] * q[1] - q[0] * p[1]); }, 0) / 2);
+  const ring = polys.map(p => p[0]).sort((a, b) => area(b) - area(a))[0];
+  const P = ring.map(p => [+p[0].toFixed(3), +p[1].toFixed(3)]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], up = [];
+  P.forEach(p => { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); });
+  [...P].reverse().forEach(p => { while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); });
+  const h = lo.slice(0, -1).concat(up.slice(0, -1)); h.push(h[0]);
+  return 'POLYGON((' + h.map(p => p[0] + ' ' + p[1]).join(',') + '))';
+}
+async function safeWKT(g, budget) {
+  let w = geomToWKT(g, budget);
+  if (await wktOK(w)) return w;
+  w = geomToWKT(g, Math.max(40, budget / 3)); if (await wktOK(w)) return w;
+  w = hullWKT(g); if (await wktOK(w)) { toast('Contour simplifié à l’enveloppe convexe (approximatif).'); return w; }
+  throw new Error('GBIF refuse ce contour');
 }
 async function pickZone(zk, code, label) {
   const N = NEWC; N.zcode = code; N.zlabel = label; N.country = N.wkt = undefined; N.cover = null; $('#cover') && ($('#cover').innerHTML = '');
   if (!code) return;
   if (zk === 'country') { N.country = code; return; }
   busy('Chargement du contour…');
-  try { N.wkt = zk === 'eco' ? geomToWKT(await ecoGeometry(code), 300) : geomToWKT(await fetchContour(zk, code, label)); busy(false); }
-  catch (e) { console.error('contour', e); busy(false); N.zcode = ''; $('#zsel').value = ''; toast('Contour indisponible. Utilisez un cercle sur la carte.'); }
+  try { N.wkt = zk === 'eco' ? await safeWKT(await ecoGeometry(code), 150) : await safeWKT(await fetchContour(zk, code, label), 200); busy(false); }
+  catch (e) { console.error('contour', e); busy(false); N.zcode = ''; $('#zsel').value = ''; toast('Contour indisponible (' + (e.message || e) + '). Utilisez un cercle sur la carte ou un autre pays.'); }
 }
 async function ecoGeometry(id) {
   const j = await jget(ECO + '?' + qs({ f: 'geojson', where: 'ECO_ID=' + id, outFields: 'ECO_NAME', returnGeometry: 'true', outSR: 4326, maxAllowableOffset: 0.02, geometryPrecision: 3 }), { timeout: 60000 });
@@ -921,30 +949,80 @@ async function zoneRings(N) {
   return [];
 }
 const coverKey = N => JSON.stringify([N.zk || 'circle', N.lat, N.lon, N.r, N.zcode, N.country]);
+const BCOL = { 1: '#1b7837', 2: '#a6761d', 3: '#35978f', 4: '#66a61e', 5: '#2c7fb8', 6: '#6a51a3', 7: '#e6ab02', 8: '#d95f02', 9: '#a6d854', 10: '#8da0cb', 11: '#b2abd2', 12: '#e7298a', 13: '#bf812d', 14: '#2b8cbe' };
+const inPoly = (pt, poly) => poly.reduce((a, r) => a !== inRing(pt, r), false);
 async function computeCover(N, onProg) {
   const rings = await zoneRings(N); if (!rings.length) throw new Error('zone vide');
-  const pts = samplePts(rings, 60), bi = {}, ec = {}, bname = {}; let none = 0, fail = 0, done = 0;
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; rings.forEach(r => r.forEach(([x, y]) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }));
+  try {
+    const off = Math.max(0.004, Math.max(x1 - x0, y1 - y0) / 250);
+    const j = await jget(ECO + '?' + qs({ f: 'geojson', where: '1=1', geometry: [x0, y0, x1, y1].map(v => v.toFixed(4)).join(','), geometryType: 'esriGeometryEnvelope', inSR: 4326, spatialRel: 'esriSpatialRelEnvelopeIntersects', outFields: 'ECO_ID,ECO_NAME,BIOME_NUM,BIOME_NAME', returnGeometry: 'true', outSR: 4326, maxAllowableOffset: off, geometryPrecision: 3 }), { timeout: 60000, retries: 1 });
+    const feats = (j.features || []).filter(f => f.geometry && f.properties && f.properties.BIOME_NUM < 90);
+    if (!feats.length) throw new Error('aucune écorégion renvoyée');
+    const E = feats.map(f => { const g = f.geometry, polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates, bb = [1e9, 1e9, -1e9, -1e9]; polys.forEach(p => p[0].forEach(([x, y]) => { bb[0] = Math.min(bb[0], x); bb[1] = Math.min(bb[1], y); bb[2] = Math.max(bb[2], x); bb[3] = Math.max(bb[3], y); })); return { f, polys, bb }; });
+    const g = 60, pts = [];
+    for (let i = 0; i < g; i++) for (let k = 0; k < g; k++) { const p = [x0 + (i + .5) / g * (x1 - x0), y0 + (k + .5) / g * (y1 - y0)]; if (rings.some(r => inRing(p, r))) pts.push(p); }
+    if (!pts.length) pts.push([(x0 + x1) / 2, (y0 + y1) / 2]);
+    const bi = {}, ec = {}, bname = {}, ebio = {}; let none = 0;
+    pts.forEach(p => {
+      const hit = E.find(e => p[0] >= e.bb[0] && p[0] <= e.bb[2] && p[1] >= e.bb[1] && p[1] <= e.bb[3] && e.polys.some(poly => inPoly(p, poly)));
+      if (!hit) none++; else { const a = hit.f.properties; bi[a.BIOME_NUM] = (bi[a.BIOME_NUM] || 0) + 1; bname[a.BIOME_NUM] = a.BIOME_NAME; ec[a.ECO_NAME] = (ec[a.ECO_NAME] || 0) + 1; ebio[a.ECO_NAME] = a.BIOME_NUM; }
+    });
+    const n = pts.length, arr = (o, f) => Object.entries(o).map(([k, v]) => [f ? f(k) : k, v / n * 100, k]).sort((a, b) => b[1] - a[1]);
+    return { key: coverKey(N), n, exact: true, biomes: arr(bi, k => BIOMES_FR[k] || bname[k]).map(([nm, p, k]) => [nm, p, +k]), eco: arr(ec).map(([nm, p]) => [nm, p, +ebio[nm]]), none: none / n * 100,
+      feats: feats.filter(f => f.properties.ECO_NAME in ec).map(f => ({ type: 'Feature', properties: f.properties, geometry: f.geometry })), rings };
+  } catch (e) { console.warn('cover polygones', e); logErr && logErr('cover-polygones', String(e && e.message || e)); const r = await computeCoverPts(N, onProg, rings); r.mapErr = String(e && e.message || e).slice(0, 100); return r; }
+}
+async function computeCoverPts(N, onProg, rings) {
+  const pts = samplePts(rings, 60), bi = {}, ec = {}, bname = {}, ebio = {}; let none = 0, fail = 0, done = 0;
   await pool(pts, 8, async p => {
     try {
       const j = await jget(ECO + '?' + qs({ f: 'json', geometry: p[0].toFixed(4) + ',' + p[1].toFixed(4), geometryType: 'esriGeometryPoint', inSR: 4326, spatialRel: 'esriSpatialRelIntersects', outFields: 'ECO_NAME,BIOME_NAME,BIOME_NUM', returnGeometry: 'false' }), { retries: 1, timeout: 15000 });
       const a = j.features && j.features[0] && j.features[0].attributes;
-      if (!a || !a.ECO_NAME || a.BIOME_NUM > 90) none++; else { bi[a.BIOME_NUM] = (bi[a.BIOME_NUM] || 0) + 1; bname[a.BIOME_NUM] = a.BIOME_NAME; ec[a.ECO_NAME] = (ec[a.ECO_NAME] || 0) + 1; }
+      if (!a || !a.ECO_NAME || a.BIOME_NUM > 90) none++; else { bi[a.BIOME_NUM] = (bi[a.BIOME_NUM] || 0) + 1; bname[a.BIOME_NUM] = a.BIOME_NAME; ec[a.ECO_NAME] = (ec[a.ECO_NAME] || 0) + 1; ebio[a.ECO_NAME] = a.BIOME_NUM; }
     } catch { fail++; }
     onProg && onProg(++done / pts.length);
   });
   const n = pts.length - fail; if (n < pts.length / 2) throw new Error('service des écorégions injoignable');
-  const arr = (o, f) => Object.entries(o).map(([k, v]) => [f ? f(k) : k, v / n * 100]).sort((a, b) => b[1] - a[1]);
-  return { key: coverKey(N), n, biomes: arr(bi, k => BIOMES_FR[k] || bname[k]), eco: arr(ec), none: none / n * 100 };
+  const arr = (o, f) => Object.entries(o).map(([k, v]) => [f ? f(k) : k, v / n * 100, k]).sort((a, b) => b[1] - a[1]);
+  return { key: coverKey(N), n, biomes: arr(bi, k => BIOMES_FR[k] || bname[k]).map(([nm, p, k]) => [nm, p, +k]), eco: arr(ec).map(([nm, p]) => [nm, p, +ebio[nm]]), none: none / n * 100 };
 }
+const shade = (hex, i, n) => { const c = parseInt(hex.slice(1), 16), f = .75 + .5 * (n > 1 ? i / (n - 1) : .5); const ch = v => Math.max(0, Math.min(255, Math.round(v * f))); return `rgb(${ch(c >> 16)},${ch((c >> 8) & 255)},${ch(c & 255)})`; };
 function coverHTML(cv) {
-  const row = ([n, p]) => `<div class="col" style="gap:3px"><div class="row sp"><span>${esc(n)}</span><span class="mono hint">${p < 1 ? '< 1' : p.toFixed(0)} %</span></div><div class="bar"><i style="width:${Math.max(1, p)}%"></i></div></div>`;
-  return `<h3>Biomes</h3>${cv.biomes.map(row).join('') || '<p class="hint">Aucun biome terrestre.</p>'}<h3>Écorégions</h3>${cv.eco.slice(0, 8).map(row).join('')}${cv.eco.length > 8 ? `<p class="hint">… et ${cv.eco.length - 8} autres.</p>` : ''}${cv.none > 0.5 ? `<p class="hint">Hors zones terrestres cartographiées (mer, glaces) : ${cv.none.toFixed(0)} %.</p>` : ''}<p class="hint">Estimation sur ${cv.n} points répartis régulièrement dans la zone. Source : RESOLVE Ecoregions 2017 (Dinerstein et al. 2017).</p>`;
+  const pf = p => p < 1 ? '< 1' : p.toFixed(p < 10 ? 1 : 0).replace('.', ',');
+  const bar = items => `<div style="display:flex;height:16px;border-radius:8px;overflow:hidden;background:var(--chip)">${items.map(([nm, p, col]) => `<i title="${esc(nm)} · ${pf(p)} %" style="width:${p}%;background:${col}"></i>`).join('')}</div>`;
+  const leg = items => `<div style="display:flex;flex-wrap:wrap;gap:4px 12px;font-size:.82rem;line-height:1.3">${items.map(([nm, p, col]) => `<span><i style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${col};margin-right:4px"></i>${esc(nm)} <b class="mono">${pf(p)} %</b></span>`).join('')}</div>`;
+  const bI = cv.biomes.map(([nm, p, k]) => [nm, p, BCOL[k] || '#888888']);
+  const cnt = {}, idx = {}; cv.eco.forEach(([, , k]) => { cnt[k] = (cnt[k] || 0) + 1; });
+  const eI = cv.eco.map(([nm, p, k]) => { idx[k] = idx[k] || 0; return [nm, p, shade(BCOL[k] || '#888888', idx[k]++, cnt[k])]; });
+  const big = eI.filter(x => x[1] >= 1), small = eI.filter(x => x[1] < 1);
+  return `<h3>Biomes</h3>${bI.length ? bar(bI) + leg(bI) : '<p class="hint">Aucun biome terrestre.</p>'}
+  <h3>Écorégions (${cv.eco.length})</h3>${bar(eI)}${leg(big)}${small.length ? `<p class="hint" style="margin:0">Moins de 1 % chacune (${small.length}) : ${esc(small.map(x => x[0]).join(', '))}.</p>` : ''}
+  ${cv.feats && window.L ? '<div class="covmap" style="height:230px;min-height:230px;border-radius:12px;overflow:hidden;flex:none"></div>' : `<p class="hint" style="margin:0">Carte indisponible${cv.mapErr ? ' (contours non récupérés : ' + esc(cv.mapErr) + ')' : !window.L ? ' (bibliothèque de cartographie non chargée)' : ''}.</p>`}
+  ${cv.none > 0.5 ? `<p class="hint" style="margin:0">Hors zones terrestres cartographiées (mer, lacs, glaces) : ${cv.none.toFixed(0)} %.</p>` : ''}<p class="hint" style="margin:0">${cv.exact ? 'Calcul sur les contours simplifiés des écorégions (grille de ' + cv.n + ' points dans la zone)' : 'Estimation sur ' + cv.n + ' points répartis dans la zone'} ; données RESOLVE Ecoregions 2017. Les contours sont approximatifs.</p>`;
+}
+function mountCoverMap(root, cv) {
+  const el = root && root.querySelector('.covmap'); if (!el || !cv || !cv.feats || !window.L) return;
+  if (el._m) { el._m.invalidateSize(); return; }
+  let m;
+  try {
+    m = el._m = L.map(el, { scrollWheelZoom: false });
+    try { L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18, attribution: '© Esri' }).addTo(m); } catch {}
+    const zp = L.polygon(cv.rings.map(r => r.map(([x, y]) => [y, x])), { color: '#000', weight: 2, fill: false, dashArray: '5 4' }).addTo(m);
+    let b = zp.getBounds();
+    try {
+      const gl = L.geoJSON({ type: 'FeatureCollection', features: cv.feats }, { style: f => ({ color: '#333', weight: .6, fillColor: BCOL[f.properties.BIOME_NUM] || '#888', fillOpacity: .5 }), onEachFeature: (f, l) => l.bindTooltip(f.properties.ECO_NAME + ' · ' + (BIOMES_FR[f.properties.BIOME_NUM] || f.properties.BIOME_NAME)) }).addTo(m);
+      zp.bringToFront(); const gb = gl.getBounds(); if (gb && gb.isValid()) b = L.latLngBounds(gb.getSouthWest(), gb.getNorthEast()).extend(b);
+    } catch (e) { console.error('carte écorégions', e); logErr && logErr('carte-ecoregions', String(e && e.message || e)); }
+    m.fitBounds(b, { padding: [8, 8] });
+    setTimeout(() => { try { m.invalidateSize(); m.fitBounds(b, { padding: [8, 8] }); } catch {} }, 200);
+  } catch (e) { console.error('carte', e); logErr && logErr('carte', String(e && e.message || e)); el.innerHTML = '<p class="hint" style="padding:10px">Carte indisponible : ' + esc(String(e.message || e)) + '</p>'; }
 }
 async function showCover() {
   const N = NEWC, box = $('#cover'); if ((N.zk || 'circle') !== 'circle' && !(N.country || N.wkt)) return toast("Choisissez d'abord une zone.");
-  if (N.cover && N.cover.key === coverKey(N)) { box.innerHTML = coverHTML(N.cover); return; }
+  if (N.cover && N.cover.key === coverKey(N)) { box.innerHTML = coverHTML(N.cover); mountCoverMap(box, N.cover); return; }
   busy('Biomes et écorégions…', 0);
-  try { N.cover = await computeCover(N, p => busy('Biomes et écorégions…', p)); busy(false); box.innerHTML = coverHTML(N.cover); }
+  try { N.cover = await computeCover(N, p => busy('Biomes et écorégions…', p)); busy(false); box.innerHTML = coverHTML(N.cover); mountCoverMap(box, N.cover); }
   catch (e) { busy(false); console.error('cover', e); toast('Calcul indisponible : ' + e.message); }
 }
 function updateModeHint() {
@@ -1009,17 +1087,66 @@ async function zoneCountry(N, keys) {
   const f = (j.facets || [])[0], c = f && f.counts && f.counts[0];
   return c ? c.name : '';
 }
+const METRO_WKT = 'POLYGON((-5.6 41.2,9.9 41.2,9.9 51.3,-5.6 51.3,-5.6 41.2))';
+const TXA = 'https://taxref.mnhn.fr/api/taxa/';
+async function taxrefMetro(sci, gbRank, budget = 250) {
+  const want = { KINGDOM: 'KD', PHYLUM: 'PH', CLASS: 'CL', ORDER: 'OR', FAMILY: 'FM', GENUS: 'GN', SPECIES: 'ES', SUBFAMILY: 'SBFM', SUPERFAMILY: 'SPFM', SUBORDER: 'SBOR', TRIBE: 'TR' }[gbRank];
+  const sr = await jget(TXA + 'search?' + qs({ scientificNames: sci, page: 1, size: 10 }), { retries: 0, timeout: 8000 });
+  const list = (sr._embedded && sr._embedded.taxa) || [], t = list.find(x => x.scientificName === sci && (!want || x.rankId === want)) || list.find(x => x.scientificName === sci);
+  if (!t) throw new Error('groupe introuvable dans TAXREF');
+  const inFr = k => k.fr === undefined ? null : ['P', 'E', 'S', 'C', 'I', 'J'].includes(k.fr);
+  if (t.rankId === 'ES') return { n: inFr(t) === false ? 0 : 1, partial: false };
+  let n = 0, calls = 0, partial = false, known = false; const queue = [t.id];
+  while (queue.length && !partial) {
+    const batch = queue.splice(0, 8);
+    await Promise.all(batch.map(async id => {
+      if (calls >= budget) { partial = true; return; }
+      calls++;
+      const r = await jget(TXA + id + '/children?' + qs({ size: 5000 }), { retries: 1, timeout: 20000 });
+      ((r._embedded && r._embedded.taxa) || []).forEach(k => { if (k.rankId === 'ES') { const f = inFr(k); if (f !== null) known = true; if (f !== false) n++; } else if (!/^(SSES|VAR|SVAR|FO|SSFO|CVAR|ABER|RACE|HYB|MO|LUSUS|NAT|PROLES|SSPROL|SSRACE|SMO|SSLUSUS|SF)$/.test(k.rankId)) queue.push(k.id); });
+    }));
+  }
+  if (!known) throw new Error('statut de présence absent des données TAXREF');
+  return { n, partial };
+}
+const isMetroZone = N => { const zk = N.zk || 'circle'; if (zk === 'region') return !/^0/.test(String(N.zcode)); if (zk === 'circle') return N.lat > 41 && N.lat < 51.5 && N.lon > -5.7 && N.lon < 10; return zk === 'country'; };
+async function metroCount(N, P, keys, base) {
+  const out = {};
+  try {
+    let n = 0, partial = false;
+    for (const t of N.taxa) {
+      let sci = t.sci, rank = t.rank;
+      if (!sci) { const sp = await jget(GBIF + 'species/' + t.key); sci = sp.canonicalName || sp.scientificName; rank = sp.rank; }
+      const r = await taxrefMetro(sci, rank); n += r.n; partial = partial || r.partial;
+    }
+    out.taxref = { n, partial };
+  } catch (e) { console.warn('taxref métropole', e); out.taxrefErr = String(e.message || e).slice(0, 80); }
+  try { out.gbif = await facetCard({ ...base, geometry: METRO_WKT }); } catch (e) { out.gbifErr = String(e.message || e).slice(0, 60); }
+  return out;
+}
 async function runCountry(N, P, keys) {
   try {
     const cc = P.inv.cc || await zoneCountry(N, keys); if (!cc) throw new Error('pays introuvable');
     P.inv.cc = cc;
     const base = { taxonKey: keys, country: cc, occurrenceStatus: 'PRESENT' }, mt = N.mode === 'sound' ? 'Sound' : 'StillImage';
-    const [all, med] = await Promise.all([facetCard(base), facetCard({ ...base, mediaType: mt })]);
-    P.inv.known = { cc, all, med };
+    const [all, med, rec] = await Promise.all([facetCard(base), facetCard({ ...base, mediaType: mt }), facetCard({ ...base, hasCoordinate: 'true', hasGeospatialIssue: 'false', year: S.yearFrom + ',' + new Date().getFullYear() })]);
+    P.inv.known = { cc, all, med, rec, yf: S.yearFrom };
+    if (cc === 'FR' && isMetroZone(N)) { P.inv.known.metro = await metroCount(N, P, keys, base); }
   } catch (e) { console.error('pays', e); P.inv.known = { err: String(e.message || e) }; }
   const el = $('#trx'); if (el && V.view === 'preview') el.textContent = knownText(P.inv.known, NEWC && NEWC.mode);
 }
-const knownText = (t, mode) => !t ? 'Nombre d’espèces connues dans le pays : calcul en cours…' : t.err ? 'Nombre d’espèces connues dans le pays : indisponible (' + t.err + ').' : `${countryName(t.cc)} : ${t.all.toLocaleString('fr-FR')} espèces de ce groupe connues dans GBIF (au moins une observation), dont ${t.med.toLocaleString('fr-FR')} avec ${mode === 'sound' ? 'au moins un son' : 'au moins une photo'}.`;
+const knownText = (t, mode) => {
+  if (!t) return 'Nombre d’espèces connues dans le pays : calcul en cours…';
+  if (t.err) return 'Nombre d’espèces connues dans le pays : indisponible (' + t.err + ').';
+  const f = x => x.toLocaleString('fr-FR'), fr = t.cc === 'FR', m = t.metro;
+  let txt = `${fr ? 'France entière, outre-mer inclus' : countryName(t.cc)} : ${f(t.all)} espèces de ce groupe connues dans GBIF (toutes années, toutes observations)${t.rec !== undefined ? `, dont ${f(t.rec)} observées depuis ${t.yf} avec coordonnées valides (mêmes critères que l’inventaire de la zone)` : ''} ; ${f(t.med)} ont ${mode === 'sound' ? 'au moins un son' : 'au moins une photo'} (toutes années).`;
+  if (fr && m) {
+    if (m.taxref) txt += ` France métropolitaine (Corse incluse), d’après TAXREF : ${m.taxref.partial ? '≥ ' : ''}${f(m.taxref.n)} espèces présentes.`;
+    if (m.gbif !== undefined) txt += ` France métropolitaine, d’après GBIF (observations géoréférencées, Corse incluse) : ${f(m.gbif)} espèces${m.taxref ? '' : ' (TAXREF inaccessible depuis ce navigateur)'}.`;
+    else if (!m.taxref) txt += ' Total métropolitain indisponible.';
+  } else if (fr) txt += ' Ce total inclut les territoires d’outre-mer.';
+  return txt;
+};
 async function findSpecies() {
   const N = NEWC, F = RANKP[N.rank], un = UNITS[N.rank];
   if ((N.zk || 'circle') !== 'circle' && !(N.country || N.wkt)) return toast("Choisissez d'abord une zone dans la liste.");
@@ -1091,12 +1218,13 @@ function viewPreview() {
   <div class="card col"><h3>Paliers de difficulté</h3>${lv.map(l => `<div class="row sp"><span><b>${esc(l.name)}</b> <span class="hint">${l.pct} % des ${un}</span></span><span class="chip mono">${l.n} ${un}</span></div>`).join('')}</div>
   <div class="card col"><h3>Les plus fréquents</h3>${P.species.slice(0, 8).map(s => `<div class="col" style="gap:3px"><div class="row sp"><span>${esc(dn(s.k))} <span class="hint sci">${esc((NAMES[s.k] || {}).sci || '')}</span></span><span class="mono hint">${s.n}</span></div><div class="bar"><i style="width:${Math.max(2, s.n / max * 100)}%"></i></div></div>`).join('')}</div>
   <button class="btn pri block" data-act="createCourse">Créer le parcours</button>`;
+  const dt = app.querySelector('details'); if (dt && P.cover) dt.addEventListener('toggle', () => { if (dt.open) mountCoverMap(dt, P.cover); });
 }
 function createCourse() {
   const N = NEWC, P = PREVIEW, zk = N.zk || 'circle';
   const id = [N.taxa.map(t => t.key).sort((a, b) => a - b).join('+'), ...(zk === 'circle' ? [N.lat.toFixed(2), N.lon.toFixed(2), N.r] : [zk, N.zcode]), N.mode, N.rank === 'species' ? '' : N.rank].join('_');
   if (COURSES[id]) { toast('Ce parcours existe déjà : reprise.'); return go('course', { id }); }
-  COURSES[id] = { id, created: Date.now(), last: Date.now(), taxon: { key: N.taxa[0].key, label: taxaLabel(N.taxa) }, taxa: N.taxa.map(t => t.key), zone: { kind: zk, lat: N.lat, lon: N.lon, r: N.r, label: zk === 'circle' ? P.label : N.zlabel, country: N.country, wkt: N.wkt, code: N.zcode, cc: N.cc }, mode: N.mode, rank: N.rank, inv: P.inv, cover: P.cover, yearFrom: S.yearFrom,
+  COURSES[id] = { id, created: Date.now(), last: Date.now(), taxon: { key: N.taxa[0].key, label: taxaLabel(N.taxa) }, taxa: N.taxa.map(t => t.key), zone: { kind: zk, lat: N.lat, lon: N.lon, r: N.r, label: zk === 'circle' ? P.label : N.zlabel, country: N.country, wkt: N.wkt, code: N.zcode, cc: N.cc }, mode: N.mode, rank: N.rank, inv: P.inv, cover: P.cover && { ...P.cover, feats: undefined, rings: undefined }, yearFrom: S.yearFrom,
     species: P.species, levelIdx: 0, maxLevel: 0, trained: {}, trials: [], stats: {}, seen: {}, dead: {}, badges: {}, tcount: 0 };
   saveCourses(); NEWC = null; PREVIEW = null; go('course', { id });
 }
@@ -1582,7 +1710,7 @@ function viewProgress() {
   const conf = {}; tr.filter(t => !t[3] && t[4]).forEach(t => { const key = t[2] + '>' + t[4]; conf[key] = (conf[key] || 0) + 1; });
   const cf = Object.entries(conf).sort((a, b) => b[1] - a[1]).slice(0, 5);
   const byS = {}; tr.forEach(t => { (byS[t[2]] = byS[t[2]] || []).push(t[3]); });
-  const weak = Object.entries(byS).filter(([, a]) => a.length >= 3).map(([k, a]) => [k, a.reduce((p, q) => p + q, 0) / a.length, a.length]).sort((a, b) => a[1] - b[1]).slice(0, 6);
+  const weak = Object.entries(byS).filter(([, a]) => a.length >= 3).map(([k, a]) => [k, a.reduce((p, q) => p + q, 0) / a.length, a.length]).filter(x => x[1] < S.threshold / 100).sort((a, b) => a[1] - b[1]).slice(0, 6);
   const sess = []; tr.forEach(t => { const s = sess[sess.length - 1]; if (s && t[0] - s.end < 30 * 60e3) { s.n++; s.ok += t[3]; s.end = t[0]; } else sess.push({ start: t[0], end: t[0], n: 1, ok: t[3] }); });
   app.innerHTML = `<h2>Progression</h2>
   <select id="cpick" aria-label="Parcours">${cs.map(x => `<option value="${esc(x.id)}" ${x.id === c.id ? 'selected' : ''}>${esc(courseTitle(x))}</option>`).join('')}</select>
@@ -1645,6 +1773,7 @@ function viewSettings() {
   app.innerHTML = `<h2>Réglages</h2>
   <section class="card col">
   <label class="f">Nom affiché en grand<select id="s_nf"><option value="fr" ${S.nameFirst !== 'latin' ? 'selected' : ''}>Nom français (latin en dessous)</option><option value="latin" ${S.nameFirst === 'latin' ? 'selected' : ''}>Nom scientifique (français en dessous)</option></select></label>
+  <label class="f" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" id="s_im" ${S.immatures ? 'checked' : ''} style="width:22px;height:22px"> Inclure les larves, nymphes, juvéniles et autres stades immatures<small>Par défaut, quand GBIF indique le stade de vie, seuls les adultes (imagos) sont utilisés. Les médias sans information de stade restent utilisables. Si une espèce n’a aucun adulte, ses stades immatures sont utilisés en dernier recours.</small></label>
   <label class="f" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" id="s_ac" ${S.autocomplete ? 'checked' : ''} style="width:22px;height:22px"> Autocomplétion pendant le test (avec les labels du parcours)</label>
   <label class="f">Seuil de réussite : <span class="mono" id="v1">${S.threshold} %</span><input type="range" id="s_thr" min="60" max="100" value="${S.threshold}"></label>
   <label class="f">Images par label en entraînement : <span class="mono" id="v2">${S.trainShots}</span><input type="range" id="s_shots" min="1" max="12" value="${S.trainShots}"></label>
@@ -1666,6 +1795,7 @@ function viewSettings() {
   bind('s_thr', 'threshold', 'v1', v => v + ' %'); bind('s_shots', 'trainShots', 'v2', v => v); bind('s_blk', 'blockSize', 'v3', v => v); bind('s_ses', 'sessionLen', 'v4', v => v);
   bind('s_year', 'yearFrom'); bind('s_ts', 'testShots'); bind('s_tl', 'timeLimit'); bind('s_win', 'window'); bind('s_cov', 'coverage', 'v5', v => v + ' %'); bind('s_min', 'minRecords'); bind('s_xc', 'xcKey', null, null, false);
   $('#s_nf').onchange = e => { S.nameFirst = e.target.value; saveSettings(); };
+  $('#s_im').onchange = e => { S.immatures = e.target.checked; saveSettings(); };
   $('#s_ac').onchange = e => { S.autocomplete = e.target.checked; saveSettings(); };
   $('#s_zone').onchange = e => { S.zoneFirst = e.target.checked; saveSettings(); };
   $('#imp').onchange = async e => { try { const j = JSON.parse(await e.target.files[0].text()); Object.assign(COURSES, j.courses || {}); Object.assign(NAMES, j.names || {}); if (j.bad) { Object.assign(BAD.items, j.bad.items || {}); Object.assign(BAD.ds, j.bad.ds || {}); Object.assign(BAD.owner, j.bad.owner || {}); LS.set('fnt.bad', BAD); } if (j.settings) Object.assign(S, j.settings); saveCourses(); saveNames(); saveSettings(); toast('Sauvegarde importée.'); } catch { toast('Fichier invalide.'); } };
