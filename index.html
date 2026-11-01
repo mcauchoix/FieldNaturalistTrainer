@@ -134,6 +134,8 @@ table{border-collapse:collapse;width:100%;font-size:.9rem}
 td,th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left}
 .scroll{overflow-x:auto}
 svg.chart text{fill:var(--muted);font:11px var(--font-m)}
+  .sphoto img{width:100%;max-height:210px;object-fit:cover;border-radius:12px;display:block}.sphoto{margin-bottom:6px}.sphoto small{display:block;font-size:.7rem}
+.media.compact .specctl{display:none}.media.compact .attr{font-size:.72rem}.cmp{align-items:start}
 .nmslot{margin:-2px 0 2px}.nmslot:empty{display:none}.listen{align-self:center;min-height:36px;padding:4px 14px;font-size:.85rem}
 .mic.on{background:var(--bad);border-color:var(--bad);color:#fff}
 ul.refs-list{padding-left:18px;margin:0;display:flex;flex-direction:column;gap:6px;font-size:.9rem}
@@ -200,15 +202,38 @@ const RANK_FR = { KINGDOM: 'règne', SUBKINGDOM: 'sous-règne', PHYLUM: 'embranc
 const LIFE = { ADULT: 'adulte', JUVENILE: 'juvénile', IMMATURE: 'immature', LARVA: 'larve', PUPA: 'nymphe/pupe', NYMPH: 'nymphe', EGG: 'œuf', IMAGO: 'imago', SUBADULT: 'subadulte', SPORE: 'spore', SEED: 'graine', EMBRYO: 'embryon' };
 const lifeFr = x => { const k = String(x || '').trim().toUpperCase().replace(/[ -]/g, '_'); return LIFE[k] || String(x || '').trim().toLowerCase(); };
 const BIOMES_FR = { 1: 'Forêts tropicales et subtropicales humides', 2: 'Forêts tropicales et subtropicales sèches', 3: 'Forêts de conifères tropicales et subtropicales', 4: 'Forêts tempérées de feuillus et mixtes', 5: 'Forêts tempérées de conifères', 6: 'Forêts boréales / taïga', 7: 'Prairies, savanes et fourrés tropicaux et subtropicaux', 8: 'Prairies, savanes et fourrés tempérés', 9: 'Prairies et savanes inondées', 10: 'Prairies et fourrés de montagne', 11: 'Toundra', 12: 'Forêts, bois et maquis méditerranéens', 13: 'Déserts et fourrés xériques', 14: 'Mangroves' };
-const DEFAULTS = { threshold: 90, trainShots: 4, blockSize: 10, sessionLen: 20, yearFrom: new Date().getFullYear() - 20, minRecords: 2, xcKey: '', zoneFirst: true, timeLimit: 0, testShots: 0, window: 0, coverage: 100, nameFirst: 'fr', autocomplete: true, specFmin: 0, specFmax: 0, timeExp: false, immatures: false, tts: 'off', slideSec: 3, slideRep: 2, ghRepo: '', pseudo: '', endpoint: '', share: false, autoShare: false, lastShare: 0 };
+const DEFAULTS = { threshold: 90, trainShots: 4, blockSize: 10, sessionLen: 20, yearFrom: new Date().getFullYear() - 20, minRecords: 2, xcKey: '', zoneFirst: true, timeLimit: 0, testShots: 0, window: 0, coverage: 100, nameFirst: 'fr', autocomplete: true, specFmin: 0, specFmax: 0, timeExp: false, immatures: false, tts: 'off', soundPhoto: true, slideSec: 3, slideRep: 2, ghRepo: '', pseudo: '', endpoint: '', share: false, autoShare: false, lastShare: 0, lastExport: 0 };
 const GH_REPO = '';      // optionnel : « proprietaire/depot » fixé par le mainteneur du site
-const COLLECT_URL = '';  // optionnel : URL du point de collecte (voir collecte-apps-script.gs)
+const COLLECT_URL = 'https://script.google.com/macros/s/AKfycbyROnW3K9oIYuteRB3roIlUd0cK-viqfUSsbBeYnEXYJC5B0HakAlU-zN-UmrWCbkOJ/exec';  // optionnel : URL du point de collecte (voir collecte-apps-script.gs)
 let S = { ...DEFAULTS, ...LS.get('fnt.settings', {}) };
 const saveSettings = () => LS.set('fnt.settings', S);
 let COURSES = LS.get('fnt.courses', {});
 const NAMES = LS.get('fnt.names', {});
 const saveCourses = () => LS.set('fnt.courses', COURSES);
 const saveNames = () => LS.set('fnt.names', NAMES);
+/* ---------- versions des données : les parcours survivent aux mises à jour de l'application ---------- */
+const APP_VERSION = '2026-11-01', SCHEMA = 3;
+function normCourse(c) {
+  if (!c || typeof c !== 'object') return c;
+  const d = { trained: {}, trials: [], stats: {}, seen: {}, dead: {}, badges: {}, tcount: 0, levelIdx: 0, maxLevel: 0, species: [], zone: {}, mode: 'photo', rank: 'species', created: Date.now(), last: Date.now() };
+  Object.keys(d).forEach(k => { if (c[k] === undefined || c[k] === null) c[k] = d[k]; });
+  if (!c.taxon) c.taxon = { key: (c.taxa && c.taxa[0]) || 0, label: c.title || 'Parcours' };
+  if (!c.taxa) c.taxa = [c.taxon.key];
+  if (!c.zone.kind) c.zone.kind = c.zone.country ? 'country' : (c.zone.wkt ? 'region' : 'circle');
+  return c;
+}
+(function migrateData() {
+  try {
+    const v = LS.get('fnt.schema', 0);
+    if (v < SCHEMA && Object.keys(COURSES).length) {
+      const dump = JSON.stringify({ schema: v, courses: COURSES });
+      if (dump.length < 3e6) { Object.keys(localStorage).filter(k => k.startsWith('fnt.backup.')).forEach(k => localStorage.removeItem(k)); localStorage.setItem('fnt.backup.v' + v, dump); }
+    }
+    Object.values(COURSES).forEach(normCourse);
+    if (v !== SCHEMA) { LS.set('fnt.schema', SCHEMA); saveCourses(); }
+  } catch (e) { console.error('migration', e); }
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch {}
+})();
 const BAD = Object.assign({ items: {}, ds: {}, owner: {}, log: [] }, LS.get('fnt.bad', {}));
 const ownerOf = it => String(it.creator || '').trim().toLowerCase();
 const penalty = it => (it.ds && it.ds !== 'xeno-canto' && it.ds !== XC_DS ? BAD.ds[it.ds] || 0 : 0) + (ownerOf(it) ? BAD.owner[ownerOf(it)] || 0 : 0);
@@ -776,6 +801,8 @@ function render() { renderTabs(); ({ home: viewHome, new: viewNew, preview: view
 function viewHome() {
   const cs = Object.values(COURSES).sort((a, b) => (b.last || 0) - (a.last || 0));
   app.innerHTML = `<header class="col"><h1>FieldNaturalistTrainer</h1><p class="hint">Apprenez à reconnaître d’un coup d’œil les espèces de votre zone avant d’aller sur le terrain. Données de biodiversité : GBIF.</p></header>
+  ${/Android|iPhone|iPad/i.test(navigator.userAgent) && !/^https?:$/.test(location.protocol) ? '<div class="card col" style="border-color:var(--bad)"><b>Page ouverte depuis un fichier local</b><p class="hint">Sur téléphone, Chrome et Safari bloquent souvent les connexions réseau des fichiers locaux (GBIF injoignable). Utilisez l’adresse web de l’application (https://…) plutôt que le fichier téléchargé. Réglages > Diagnostic de connexion permet de vérifier.</p></div>' : ''}
+  ${Object.values(COURSES).reduce((a, c) => a + (c.trials ? c.trials.length : 0), 0) >= 30 && Date.now() - (S.lastExport || 0) > 14 * 864e5 ? '<div class="card col"><b>Pensez à sauvegarder</b><p class="hint">Vos parcours sont enregistrés dans ce navigateur. Exportez-les (Réglages > Exporter) pour les conserver si vous changez d’appareil, d’adresse ou videz les données du navigateur.</p><button class="btn sm" data-act="export" style="align-self:flex-start">Exporter maintenant</button></div>' : ''}
   <button class="btn pri block" data-act="newCourse">Nouveau parcours</button>
   ${cs.length ? cs.map(c => { const L = levelsOf(c)[c.levelIdx], m = mastery(c), all = firstTrials(c), acc = all.length ? Math.round(all.slice(-50).reduce((a, t) => a + t[3], 0) / all.slice(-50).length * 100) : null;
     return `<button class="card lvl" style="flex-direction:column;align-items:stretch;gap:8px" data-act="openCourse" data-id="${esc(c.id)}">
@@ -1358,6 +1385,35 @@ async function buildChunk(ci) {
   for (let r = 0; r < rest; r++) { let o = shuffle(ks); if (seq.length && o.length > 1 && o[0] === seq[seq.length - 1].k) o.push(o.shift()); o.forEach(k => { if (per[k][blocked + r]) seq.push({ k, item: per[k][blocked + r] }); }); }
   T.ci = ci; T.cards = seq; T.i = 0; save(c);
 }
+/* photo d'illustration pour les parcours sons */
+const PHOTOS = {};
+async function speciesPhoto(c, k) {
+  const key = c.id + '|' + k; if (PHOTOS[key] !== undefined) return PHOTOS[key];
+  const base = { [RANKP[c.rank || 'species']]: k, mediaType: 'StillImage', occurrenceStatus: 'PRESENT', limit: 40 };
+  let pick = null;
+  for (const geo of [zoneGeo(c.zone), {}]) {
+    try {
+      const j = await jget(GBIF + 'occurrence/search?' + qs({ ...base, ...geo }), { retries: 1 }), its = [];
+      (j.results || []).forEach(o => (o.media || []).forEach(m => {
+        if (m.type !== 'StillImage' || !m.identifier) return;
+        if (o.datasetKey === XC_DS || /xeno-canto|spectro|\/ffts\/|sono\.|sonogram/i.test(String(m.identifier) + ' ' + (o.datasetName || ''))) return;
+        if (!S.immatures && IMM.test(o.lifeStage || '')) return;
+        const lic = m.license || o.license; if (!okLic(lic)) return;
+        its.push({ url: fixImg(m.identifier), creator: m.creator || m.rightsHolder || o.recordedBy || '', lic: shortLic(lic), occ: o.key });
+      }));
+      if (its.length) { pick = its[Math.floor(Math.random() * its.length)]; break; }
+    } catch {}
+  }
+  return (PHOTOS[key] = pick);
+}
+async function addPhoto(c, k, el, how, alive) {
+  if (!el) return;
+  const p = await speciesPhoto(c, k); if (!p || (alive && !alive())) return;
+  const d = document.createElement('div'); d.className = 'sphoto';
+  d.innerHTML = `<img alt="Photographie de l’espèce" src="${esc(p.url)}" loading="lazy" style="cursor:zoom-in"><small class="hint">Photo : ${esc(p.creator || 'auteur inconnu')} · ${esc(p.lic)} · <a href="https://www.gbif.org/occurrence/${p.occ}" target="_blank" rel="noopener">GBIF</a></small>`;
+  const im = d.querySelector('img'); im.onerror = () => d.remove(); im.onclick = () => openZoom(p.url);
+  if (how === 'append') el.append(d); else el.prepend(d);
+}
 let curMedia = null;
 async function viewTrain() {
   if (!T) return go('home');
@@ -1374,6 +1430,7 @@ async function viewTrain() {
     if (my !== curToken) return;
     c.trained[card.k] = 1; save(c);
     const slot = $('#mslot'); slot.innerHTML = ''; const mv = buildMedia(m, c.mode, card.item); slot.append(mv); curMedia = mv;
+    if (c.mode === 'sound' && S.soundPhoto) addPhoto(c, card.k, mv, 'prepend', () => my === curToken);
     const n = NAMES[card.k], rank = c.species.findIndex(s => s.k === card.k) + 1, cnt = (c.species[rank - 1] || {}).n;
     $('#nm').innerHTML = ` <div class="namebox">${nameHTML(card.k)}<div class="row" style="justify-content:center;margin-top:6px">${n.family ? `<span class="chip">${esc(n.family)}</span>` : ''}<span class="chip mono">n° ${rank} · ${cnt} obs.</span>${card.first ? `<span class="chip ok">${U(c)[2]}</span>` : ''}</div>${c.rank && c.rank !== 'species' && card.item.sp ? `<span class="hint">Sur cette image : <i>${esc(card.item.sp)}</i></span>` : ''}</div>`;
     if (c.mode === 'sound') { const sl = $('.nmslot', mv); if (sl) sl.append($('#nm')); }
@@ -1572,6 +1629,7 @@ function submitAnswer(texts, idk, why) {
   updateMeter();
   if (!X.lvlUp && !sessionOver()) X.upcoming = planTrial().catch(() => null).then(v => v || undefined);
   $('#nextT').focus({ preventScroll: true }); hints();
+  if (X.c.mode === 'sound' && S.soundPhoto && X.cur) addPhoto(X.c, X.cur.k, $('#fb .fb'), 'append', () => V.view === 'test');
   if (S.tts === 'all' && X.cur) { cancelSpeech(); speakNames(X.cur.k, 1); }
 }
 async function afterTrial() {
@@ -1638,9 +1696,9 @@ function viewCompare() {
   const c = CP.c, [a, b, , why] = CP.pairs[CP.pi];
   app.innerHTML = `<div class="row sp"><button class="btn ghost sm" data-act="cmpQuit">✕ Quitter</button><span class="chip">${esc(why)}</span><span class="mono hint">${CP.pi + 1}/${CP.pairs.length}</span></div>
   <div class="cmp">${[a, b].map(k => `<div class="col"><div class="namebox">${nameHTML(k)}</div><div class="col" id="cm${k}"></div></div>`).join('')}</div>
-  <p class="hint">Cherchez ce qui change d'une image à l'autre : silhouette, proportions, motifs, posture.</p>
+  ${c.mode === 'sound' ? '<button class="btn block" data-act="cmpSeq">▶ Écouter en alternance (A, B, A, B…)</button><p class="hint">Comparez la hauteur, le rythme et la forme du chant sur les spectrogrammes. Les réglages de fréquence (Réglages ou sous un spectrogramme) s’appliquent aux deux.</p>' : '<p class="hint">Cherchez ce qui change d\'une image à l\'autre : silhouette, proportions, motifs, posture.</p>'}
   <div class="row"><button class="btn grow" data-act="cmpOther">Autre paire</button><button class="btn pri grow" data-act="cmpDrill">S'entraîner à les distinguer</button></div>`;
-  [a, b].forEach(k => { const slot = $('#cm' + k); CP.cards[k].forEach(card => slot.append(buildMedia(card.asset, c.mode, card.item))); });
+  [a, b].forEach(k => { const slot = $('#cm' + k); if (c.mode === 'sound' && S.soundPhoto) addPhoto(c, k, slot, 'prepend', () => V.view === 'compare'); CP.cards[k].forEach(card => { const mv = buildMedia(card.asset, c.mode, card.item); if (c.mode === 'sound') mv.classList.add('compact'); slot.append(mv); }); });
 }
 async function drillNext() {
   const c = CP.c, d = CP.drill; if (d.n >= d.total) return drillEnd();
@@ -1698,7 +1756,7 @@ function snapshot() {
 }
 function saveReport(type, text, extra) {
   try { if (X) save(X.c); if (T) save(T.c); } catch {}
-  const r = { id: Date.now().toString(36), t: new Date().toISOString(), type, text, app: 'FieldNaturalistTrainer', ua: navigator.userAgent, page: location.href.split('#')[0], settings: S, snapshot: snapshot(), errors: ERRLOG.slice(-15), ...(extra || {}) };
+  const r = { id: Date.now().toString(36), t: new Date().toISOString(), type, text, app: 'FieldNaturalistTrainer', appVersion: APP_VERSION, ua: navigator.userAgent, page: location.href.split('#')[0], settings: S, snapshot: snapshot(), errors: ERRLOG.slice(-15), ...(extra || {}) };
   REPORTS.push(r); while (REPORTS.length > 100) REPORTS.shift(); LS.set('fnt.reports', REPORTS); return r;
 }
 function logJSON(full) { return JSON.stringify({ exported: new Date().toISOString(), reports: REPORTS, errors: ERRLOG, badMedia: BAD.log.slice(-100), ...(full ? { backup: { settings: S, courses: COURSES, names: NAMES, bad: BAD } } : {}) }, null, 1); }
@@ -1834,7 +1892,25 @@ function perfPayload() {
     return { id: c.id, title: courseTitle(c), group: c.taxon.label, zone: { kind: c.zone.kind, label: c.zone.label || '', cc: c.zone.cc || '' }, mode: c.mode, rank: c.rank || 'species', nUnits: c.species.length, level: c.levelIdx, maxLevel: c.maxLevel, badges: c.badges || {}, nTrials: c.trials.length,
       units: sci, trials: c.trials.slice(-3000).map(t => [t[0], t[1], si(t[2]), t[3], t[6] || 0]) };
   });
-  return { v: 1, app: 'FieldNaturalistTrainer', pseudo: String(S.pseudo || '').trim().slice(0, 24), sentAt: new Date().toISOString(), courses };
+  return { v: 1, appVersion: APP_VERSION, schema: SCHEMA, app: 'FieldNaturalistTrainer', pseudo: String(S.pseudo || '').trim().slice(0, 24), sentAt: new Date().toISOString(), courses };
+}
+function diagCardHTML() {
+  return `<section class="card col"><h3>Diagnostic de connexion</h3>
+  <p class="hint">À utiliser si l’application n’arrive pas à joindre GBIF (téléphone, réseau d’entreprise…). Version ${APP_VERSION} · adresse : ${esc(location.protocol + '//' + (location.host || '(fichier local)'))}</p>
+  <button class="btn block" data-act="connTest">Tester la connexion</button></section>`;
+}
+async function connTest() {
+  const tests = [['GBIF', GBIF + 'species/212'], ['GBIF (occurrences)', GBIF + 'occurrence/search?limit=0&taxonKey=212'], ['xeno-canto', 'https://xeno-canto.org/api/3/recordings?query=gen:parus'], ['Nominatim (OpenStreetMap)', 'https://nominatim.openstreetmap.org/search?format=json&q=Paris&limit=1']];
+  const o = modal('<h3>Test de connexion…</h3><div class="spin" style="margin:20px auto"></div>');
+  const out = [];
+  for (const [nm, u] of tests) {
+    const t0 = performance.now();
+    try { const ac = new AbortController(), to = setTimeout(() => ac.abort(), 15000); const r = await fetch(u, { signal: ac.signal }); clearTimeout(to); out.push(`${r.ok || r.status === 400 || r.status === 401 ? '✔' : '✘'} ${nm} : HTTP ${r.status} (${Math.round(performance.now() - t0)} ms)`); }
+    catch (e) { out.push(`✘ ${nm} : ${e.name} – ${e.message}`); }
+  }
+  const info = `Page : ${location.protocol}//${location.host || '(fichier local)'}\nEn ligne : ${navigator.onLine}\nNavigateur : ${navigator.userAgent}`;
+  o.remove();
+  modal(`<h3>Résultat du test</h3><pre style="white-space:pre-wrap;font-size:.8rem">${esc(out.join('\n') + '\n\n' + info)}</pre><p class="hint">« Failed to fetch » ou « Load failed » = connexion bloquée (réseau, mode économiseur de données, page ouverte comme fichier local, extension de blocage). Si GBIF échoue mais pas les autres, copiez ce résultat dans un signalement.</p><button class="btn" data-m="copy">Copier</button><button class="btn pri" data-m="ok">Fermer</button>`, a => { if (a === 'copy') navigator.clipboard && navigator.clipboard.writeText(out.join('\n') + '\n' + info).then(() => toast('Copié.')).catch(() => {}); });
 }
 function shareCardHTML() {
   return `<section class="card col"><h3>Partage de mes performances (optionnel)</h3>
@@ -1884,6 +1960,7 @@ function viewSettings() {
   <section class="card col">
   <label class="f">Nom affiché en grand<select id="s_nf"><option value="fr" ${S.nameFirst !== 'latin' ? 'selected' : ''}>Nom français (latin en dessous)</option><option value="latin" ${S.nameFirst === 'latin' ? 'selected' : ''}>Nom scientifique (français en dessous)</option></select></label>
   <label class="f">Nom prononcé (synthèse vocale)<select id="s_tts"><option value="off" ${S.tts === 'off' ? 'selected' : ''}>Désactivé</option><option value="train" ${S.tts === 'train' ? 'selected' : ''}>Pendant l’entraînement</option><option value="all" ${S.tts === 'all' ? 'selected' : ''}>Entraînement et correction du test</option></select><small>${TTS_OK ? 'Utilise la voix française de votre appareil (nom français, puis nom latin). Un bouton « Prononcer » est aussi disponible pendant l’entraînement.' : 'La synthèse vocale n’est pas disponible dans ce navigateur.'}</small></label>
+  <label class="f" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" id="s_sph" ${S.soundPhoto ? 'checked' : ''} style="width:22px;height:22px"> Parcours sons : afficher une photo de l’espèce au-dessus du spectrogramme<small>En entraînement, en comparaison et dans la correction du test (jamais avant votre réponse).</small></label>
   <label class="f">Diaporama : durée d’affichage de chaque image (s)<input type="number" id="s_ssec" value="${S.slideSec}" min="1" max="15"><small>Pour les sons, l’extrait est joué en entier.</small></label>
   <label class="f">Diaporama : répétitions des noms (français puis latin) après chaque exemple<input type="number" id="s_srep" value="${S.slideRep}" min="1" max="4"></label>
   <label class="f" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" id="s_im" ${S.immatures ? 'checked' : ''} style="width:22px;height:22px"> Inclure les larves, nymphes, juvéniles et autres stades immatures<small>Par défaut, quand GBIF indique le stade de vie, seuls les adultes (imagos) sont utilisés. Les médias sans information de stade restent utilisables. Si une espèce n’a aucun adulte, ses stades immatures sont utilisés en dernier recours.</small></label>
@@ -1908,13 +1985,14 @@ function viewSettings() {
   bind('s_thr', 'threshold', 'v1', v => v + ' %'); bind('s_shots', 'trainShots', 'v2', v => v); bind('s_blk', 'blockSize', 'v3', v => v); bind('s_ses', 'sessionLen', 'v4', v => v);
   bind('s_year', 'yearFrom'); bind('s_ts', 'testShots'); bind('s_tl', 'timeLimit'); bind('s_win', 'window'); bind('s_cov', 'coverage', 'v5', v => v + ' %'); bind('s_min', 'minRecords'); bind('s_xc', 'xcKey', null, null, false);
   $('#s_nf').onchange = e => { S.nameFirst = e.target.value; saveSettings(); };
+  $('#s_sph').onchange = e => { S.soundPhoto = e.target.checked; saveSettings(); };
   $('#s_tts').onchange = e => { S.tts = e.target.value; saveSettings(); };
   bind('s_ssec', 'slideSec'); bind('s_srep', 'slideRep');
-  app.insertAdjacentHTML('beforeend', shareCardHTML()); bindShare();
+  app.insertAdjacentHTML('beforeend', diagCardHTML() + shareCardHTML()); bindShare();
   $('#s_im').onchange = e => { S.immatures = e.target.checked; saveSettings(); };
   $('#s_ac').onchange = e => { S.autocomplete = e.target.checked; saveSettings(); };
   $('#s_zone').onchange = e => { S.zoneFirst = e.target.checked; saveSettings(); };
-  $('#imp').onchange = async e => { try { const j = JSON.parse(await e.target.files[0].text()); Object.assign(COURSES, j.courses || {}); Object.assign(NAMES, j.names || {}); if (j.bad) { Object.assign(BAD.items, j.bad.items || {}); Object.assign(BAD.ds, j.bad.ds || {}); Object.assign(BAD.owner, j.bad.owner || {}); LS.set('fnt.bad', BAD); } if (j.settings) Object.assign(S, j.settings); saveCourses(); saveNames(); saveSettings(); toast('Sauvegarde importée.'); } catch { toast('Fichier invalide.'); } };
+  $('#imp').onchange = async e => { try { const j = JSON.parse(await e.target.files[0].text()); Object.assign(COURSES, j.courses || {}); Object.values(COURSES).forEach(normCourse); Object.assign(NAMES, j.names || {}); if (j.bad) { Object.assign(BAD.items, j.bad.items || {}); Object.assign(BAD.ds, j.bad.ds || {}); Object.assign(BAD.owner, j.bad.owner || {}); LS.set('fnt.bad', BAD); } if (j.settings) Object.assign(S, j.settings); saveCourses(); saveNames(); saveSettings(); toast('Sauvegarde importée.'); } catch { toast('Fichier invalide.'); } };
 }
 
 /* ---------- actions ---------- */
@@ -1993,6 +2071,8 @@ const ACT = {
   startTrain: () => startTrain(false), startTest,
   startSlide: () => { if (T && T.c && V.view !== 'course') V.id = T.c.id; startTrain(true); },
   autoPause: () => { if (!T || !T.auto) return; T.paused = !T.paused; if (T.paused) { AUTO++; stopSound(); cancelSpeech(); const b = $('#autoBtn'); if (b) b.textContent = '▶ Reprendre'; } else viewTrain(); },
+  cmpSeq: () => { const [a, b] = CP.pairs[CP.pi], la = [...$('#cm' + a).querySelectorAll('.media')], lb = [...$('#cm' + b).querySelectorAll('.media')], q = []; for (let i = 0; i < Math.max(la.length, lb.length); i++) { if (la[i]) q.push(la[i]); if (lb[i]) q.push(lb[i]); } let i = 0; const next = () => { const m = q[i++]; if (!m || !m._play || V.view !== 'compare') return; m._ended = () => setTimeout(next, 450); m._play(); }; next(); },
+  connTest,
   say: t => { cancelSpeech(); speakNames(+t.dataset.k, 1); },
   delAsk: () => modal(`<h3>Supprimer ce parcours ?</h3><p class="hint">La progression et les badges associés seront perdus.</p><button class="btn danger" data-m="del">Supprimer</button><button class="btn ghost" data-m="no">Annuler</button>`, a => { if (a === 'del') { delete COURSES[V.id]; saveCourses(); go('home'); } }),
   trainNext: () => { T.i++; viewTrain(); },
@@ -2006,7 +2086,7 @@ const ACT = {
   nextTrial: afterTrial,
   retryTrial: () => showTrial(),
   endTest: () => { clearTimeout(X.timer); const id = X.c.id; X = null; stopSound(); go('course', { id }); },
-  export: () => { const b = new Blob([JSON.stringify({ v: 2, settings: S, courses: COURSES, names: NAMES, bad: BAD, reports: REPORTS })], { type: 'application/json' }), a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'fieldnaturalisttrainer-sauvegarde.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); },
+  export: () => { S.lastExport = Date.now(); saveSettings(); const b = new Blob([JSON.stringify({ v: 2, schema: SCHEMA, appVersion: APP_VERSION, exportedAt: new Date().toISOString(), settings: S, courses: COURSES, names: NAMES, bad: BAD, reports: REPORTS })], { type: 'application/json' }), a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'fieldnaturalisttrainer-sauvegarde.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); },
   resetAsk: () => modal(`<h3>Tout effacer ?</h3><p class="hint">Parcours, progression, badges et réglages seront supprimés de ce navigateur.</p><button class="btn danger" data-m="y">Tout effacer</button><button class="btn ghost" data-m="n">Annuler</button>`, a => { if (a === 'y') { COURSES = {}; saveCourses(); Object.keys(NAMES).forEach(k => delete NAMES[k]); saveNames(); S = { ...DEFAULTS }; saveSettings(); go('home'); } })
 };
 app.addEventListener('click', e => { const t = e.target.closest('[data-act]'); if (t && ACT[t.dataset.act]) ACT[t.dataset.act](t, e); });
